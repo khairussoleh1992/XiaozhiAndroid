@@ -132,12 +132,13 @@ class XiaozhiDevice(
             try {
                 uiStatus("Cek server (OTA)...")
                 val ota = otaCheck()
+                Log.i("XiaozhiDevice", "OTA resp: $ota")
                 val wsCfg = ota.optJSONObject("websocket")
                 val wsUrl = wsCfg?.optString("url")?.takeIf { it.isNotEmpty() }
                     ?: "wss://api.tenclass.net/xiaozhi/v1/"
                 var token = wsCfg?.optString("token")?.takeIf { it.isNotEmpty() } ?: "test"
                 if (!token.contains(" ")) token = "Bearer $token"
-                val protoVer = wsCfg?.optInt("version") ?: 1
+                val protoVer = wsCfg?.optInt("version", 1) ?: 1
 
                 // Kode aktivasi 6 digit untuk pairing di console xiaozhi.me
                 val activation = ota.optJSONObject("activation")
@@ -253,6 +254,7 @@ class XiaozhiDevice(
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 handleText(text)
+                Log.d("XiaozhiDevice", "WS in: $text")
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -264,6 +266,7 @@ class XiaozhiDevice(
                 audio?.stopAll()
                 ui.post { listener.onDisconnected(t.message ?: "connection failed") }
                 scheduleReconnect()
+                Log.e("XiaozhiDevice", "WS fail: ${t.message} resp=${response}", t)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
