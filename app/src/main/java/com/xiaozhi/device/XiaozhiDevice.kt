@@ -61,7 +61,6 @@ class XiaozhiDevice(
 
     private val wsClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .pingInterval(30, TimeUnit.SECONDS)
         .build()
 
     private val exec = Executors.newSingleThreadExecutor()
