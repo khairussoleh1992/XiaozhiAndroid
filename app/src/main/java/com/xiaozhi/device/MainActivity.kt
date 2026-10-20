@@ -1,4 +1,3 @@
-```
 package com.xiaozhi.device
 
 import android.Manifest
@@ -141,4 +140,3 @@ tvStatus = findViewById(R.id.tvStatus)
         super.onDestroy()
     }
 }
-```
