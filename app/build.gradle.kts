@@ -5,7 +5,7 @@ plugins {
 
 // URL OTA server Xiaozhi (bisa dioverride: -PXIAOZHI_OTA_URL=... atau secret GitHub)
 val otaUrl: String = (project.findProperty("XIAOZHI_OTA_URL") as String?)
-    ?: https://api.tenclass.net/xiaozhi/ota/
+    ?: "https://api.tenclass.net/xiaozhi/ota/"
 
 android {
     namespace = "com.xiaozhi.device"
