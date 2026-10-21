@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Xiaozhi Live Call</title>
-<script src="https://cdn.tailwindcss.com"></script>
 <style>
   * { -webkit-tap-highlight-color: transparent; }
   html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden;
@@ -105,6 +104,7 @@
   /* ---------- connect gate ---------- */
   #gate { position:absolute; inset:0; z-index:40; display:flex; align-items:center; justify-content:center;
     flex-direction:column; gap:18px; background:rgba(8,10,17,.55); backdrop-filter:blur(4px); }
+  body.model-ready #gate { background:rgba(8,10,17,.18); backdrop-filter:blur(1px); }
   #gate .who { width:110px; height:110px; border-radius:999px; border:3px solid rgba(255,255,255,.25);
     object-fit:cover; pointer-events:none; }
   #btn-start-call { display:flex; align-items:center; gap:10px; border-radius:999px; padding:14px 30px;
@@ -156,6 +156,7 @@
     </div>
     <button id="btn-start-call">&#128222; Mulai Panggilan</button>
     <div style="font-size:10px;color:#64748b;line-height:1.6;" id="gate-device"></div>
+    <div style="font-size:10px;color:#94a3b8;margin-top:6px;" id="boot-status">Memuat karakter...</div>
   </div>
 
   <div id="activation">
@@ -210,9 +211,9 @@
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
-<script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/index.min.js"></script>
+<script src="live2d/pixi.min.js" onerror="bootFail('pixi.min.js gagal dimuat')"></script>
+<script src="live2d/live2dcubismcore.min.js" onerror="bootFail('live2dcubismcore gagal dimuat')"></script>
+<script src="live2d/live2d-display.min.js" onerror="bootFail('live2d-display gagal dimuat')"></script>
 <script>
 /* =================================================================
    Xiaozhi Live Video Call - UI layer
@@ -226,7 +227,7 @@ var STATE = {
   micLevel: 0, ttsLevel: 0,
   chat: []
 };
-var DEFAULT_MODEL = "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display@master/test/assets/haru/haru_greeter_t03.model3.json";
+var DEFAULT_MODEL = "live2d/haru/haru_greeter_t03.model3.json";
 var cfg = {
   model: localStorage.getItem("xzh_model") || DEFAULT_MODEL,
   zoom: parseFloat(localStorage.getItem("xzh_zoom") || "2.0"),
@@ -236,27 +237,49 @@ var cfg = {
 /* ---------------- Live2D ---------------- */
 var app = null, model = null, mouthTarget = 0, exprIdx = 0;
 
+function bootFail(msg) {
+  var el = document.getElementById("boot-status");
+  if (el) { el.textContent = "ERROR: " + msg; el.style.color = "#f87171"; }
+  console.error("[XZ] " + msg);
+}
+
+window.onerror = function (m, s, l) {
+  bootFail(m + " (baris " + l + ")");
+  return false;
+};
+
+function bootStatus(t) {
+  var el = document.getElementById("boot-status");
+  if (el) { el.textContent = t; el.style.color = "#94a3b8"; }
+}
+
 async function bootLive2D() {
   try {
+    bootStatus("Menyiapkan renderer...");
+    if (!window.PIXI) return bootFail("pustaka PIXI tidak termuat");
     app = new PIXI.Application({
       view: document.getElementById("live2d-canvas"),
       resizeTo: window, backgroundAlpha: 0, antialias: true,
       autoDensity: true, resolution: window.devicePixelRatio || 1
     });
+    bootStatus("Memuat karakter...");
     await loadModel(cfg.model);
   } catch (e) {
-    console.error("live2d boot fail", e);
-    setStatus("Gagal memuat karakter (cek koneksi)", false);
+    console.error("[XZ] live2d boot fail", e);
+    bootFail("karakter gagal dimuat: " + (e && e.message ? e.message : e));
   }
 }
 
 async function loadModel(url) {
   try {
     if (model) { app.stage.removeChild(model); model.destroy(); model = null; }
+    bootStatus("Memuat karakter...");
     model = await PIXI.live2d.Live2DModel.from(url, { autoInteract: true });
     model.anchor.set(0.5, 1);
     app.stage.addChild(model);
     layoutModel();
+    bootStatus("Karakter siap \u2713");
+    document.body.classList.add("model-ready");
     try { model.motion("Idle"); } catch (e) {}
     /* lip-sync: set parameter mulut SETELAH update internal model */
     app.ticker.add(function () {
@@ -269,8 +292,9 @@ async function loadModel(url) {
       } catch (e) {}
     });
   } catch (e) {
-    console.error("model load fail", e);
-    setStatus("Model gagal dimuat: " + url, false);
+    console.error("[XZ] model load fail", e);
+    model = null;
+    bootFail("model gagal dimuat (" + (e && e.message ? e.message : e) + ")");
   }
 }
 
