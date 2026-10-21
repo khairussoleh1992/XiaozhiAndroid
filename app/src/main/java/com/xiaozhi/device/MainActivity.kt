@@ -3,7 +3,9 @@ package com.xiaozhi.device
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.os.Bundle
 import android.os.PowerManager
 import android.view.View
@@ -137,6 +139,46 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                 }
             }
         }
+
+        // Fungsi yang bisa dipanggil oleh AI/JS untuk membuka aplikasi berdasarkan kata kunci
+        @JavascriptInterface
+        fun openApp(keyword: String) {
+            runOnUiThread {
+                openAppByKeyword(keyword)
+            }
+        }
+    }
+
+    private fun openAppByKeyword(keyword: String) {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val allApps = pm.queryIntentActivities(intent, 0)
+        val keywordLower = keyword.lowercase()
+        val matchedApps = mutableListOf<ResolveInfo>()
+
+        for (app in allApps) {
+            val appName = app.loadLabel(pm).toString().lowercase()
+            if (appName.contains(keywordLower)) {
+                matchedApps.add(app)
+            }
+        }
+
+        if (matchedApps.size == 1) {
+            val packageName = matchedApps[0].activityInfo.packageName
+            val launchIntent = pm.getLaunchIntentForPackage(packageName)
+            if (launchIntent != null) {
+                startActivity(launchIntent)
+                js("window.onChat('assistant', 'Membuka ${matchedApps[0].loadLabel(pm)}')")
+            }
+        } else if (matchedApps.size > 1) {
+            val listNames = matchedApps.joinToString(", ") { it.loadLabel(pm).toString() }
+            // Kirim ke chat supaya AI bisa membacakan pilihan aplikasi ke pengguna
+            js("window.onChat('assistant', 'Ditemukan beberapa pilihan: $listNames. Mau buka yang mana?')")
+        } else {
+            js("window.onChat('assistant', 'Aplikasi dengan nama $keyword tidak ditemukan.')")
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -205,14 +247,14 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
 
     override fun onConnected() {
         connected = true
-        acquireWakeLock() // Ambil kunci agar tetap aktif walau buka Home
+        acquireWakeLock()
         js("window.onConnected()")
     }
 
     override fun onDisconnected(reason: String) {
         connected = false
         talking = false
-        releaseWakeLock() // Lepas kunci saat putus
+        releaseWakeLock()
         js("window.onDisconnected(${JSONObject.quote(reason)})")
     }
 
@@ -245,47 +287,5 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         device?.stop()
         webView.destroy()
         super.onDestroy()
-    }
-}
-
-import android.content.Intent
-import android.content.pm.ResolveInfo
-
-// Fungsi untuk mencari dan membuka aplikasi berdasarkan kata kunci (misal: "email")
-fun openAppByKeyword(keyword: String) {
-    val pm = packageManager
-    val intent = Intent(Intent.ACTION_MAIN, null).apply {
-        addCategory(Intent.CATEGORY_LAUNCHER)
-    }
-    val allApps = pm.queryIntentActivities(intent, 0)
-    
-    val keywordLower = keyword.lowercase()
-    val matchedApps = mutableListOf<ResolveInfo>()
-
-    // Cek aplikasi apa saja yang namanya mengandung kata kunci
-    for (app in allApps) {
-        val appName = app.loadLabel(pm).toString().lowercase()
-        if (appName.contains(keywordLower)) {
-            matchedApps.add(app)
-        }
-    }
-
-    if (matchedApps.size == 1) {
-        // Jika hanya ada 1 aplikasi yang cocok, langsung buka
-        val packageName = matchedApps[0].activityInfo.packageName
-        val launchIntent = pm.getLaunchIntentForPackage(packageName)
-        if (launchIntent != null) {
-            startActivity(launchIntent)
-            Toast.makeText(this, "Membuka ${matchedApps[0].loadLabel(pm)}", Toast.LENGTH_SHORT).show()
-        }
-    } else if (matchedApps.size > 1) {
-        // Jika ada banyak (misal: Gmail & Outlook untuk kata "email"), 
-        // kita bisa sebutkan pilihannya lewat suara/teks ke user
-        val listNames = matchedApps.joinToString(", ") { it.loadLabel(pm).toString() }
-        Toast.makeText(this, "Ditemukan: $listNames. Mau buka yang mana?", Toast.LENGTH_LONG).show()
-        // (Opsional) Kirim daftar ini ke WebView/AI agar dibacakan ke pengguna
-        js("window.onChat('assistant', 'Ditemukan beberapa pilihan: $listNames. Mau buka yang mana?')")
-    } else {
-        Toast.makeText(this, "Aplikasi dengan nama '$keyword' tidak ditemukan", Toast.LENGTH_SHORT).show()
     }
 }
