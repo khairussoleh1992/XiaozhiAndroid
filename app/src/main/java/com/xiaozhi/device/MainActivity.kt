@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.View
+import android.view.WindowManager // <-- Tambahan impor
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
@@ -18,13 +19,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 
-/**
- * Tampilan panggilan video 1-on-1 (Live2D) via WebView assets/videocall.html.
- * Kotlin menangani jaringan + audio; UI, karakter, waveform, dan lip-sync
- * dirender di HTML/JS. Jembatan dua arah:
- *   AndroidBridge.XXX   : JS   -> Kotlin (connect, talkStart, ...)
- *   window.onXXX(...)   : Kotlin -> JS  (status, level audio, chat, ...)
- */
 class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
 
     private var device: XiaozhiDevice? = null
@@ -63,7 +57,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                 return true
             }
 
-            // Izinkan getUserMedia (kamera) dari WebView bila izin runtime sudah ada
             override fun onPermissionRequest(req: PermissionRequest) {
                 runOnUiThread {
                     val wantsVideo = req.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
@@ -81,7 +74,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         pushDeviceInfo()
     }
 
-    /** Jembatan dipanggil dari JS */
     inner class Bridge {
         @JavascriptInterface
         fun connect() {
@@ -91,8 +83,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                     ActivityCompat.requestPermissions(
                         this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA), permCode)
                 } else {
-                    // start() kini selalu memulai ulang loop koneksi (generation),
-                    // jadi tombol bisa dipencet berulang kali.
                     device?.start()
                 }
             }
@@ -104,6 +94,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                 talking = false
                 connected = false
                 device?.stop()
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) // Bolehkan layar mati lagi
                 js("window.onDisconnected('Panggilan diakhiri')")
             }
         }
@@ -150,7 +141,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
 
-    /** Eksekusi JS di UI thread (aman dipanggil dari thread mana pun) */
     private fun js(code: String) {
         runOnUiThread {
             if (webView.visibility == View.VISIBLE) {
@@ -180,12 +170,14 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
 
     override fun onConnected() {
         connected = true
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) // Jaga layar tetap menyala saat terhubung
         js("window.onConnected()")
     }
 
     override fun onDisconnected(reason: String) {
         connected = false
         talking = false
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) // Bolehkan layar mati setelah putus
         js("window.onDisconnected(${JSONObject.quote(reason)})")
     }
 
@@ -214,6 +206,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
     }
 
     override fun onDestroy() {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         device?.stop()
         webView.destroy()
         super.onDestroy()
