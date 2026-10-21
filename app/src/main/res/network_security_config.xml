@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Semua koneksi tetap HTTPS, KECUALI cadangan vision API -->
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">api.xiaozhi.me</domain>
+    </domain-config>
+</network-security-config>
