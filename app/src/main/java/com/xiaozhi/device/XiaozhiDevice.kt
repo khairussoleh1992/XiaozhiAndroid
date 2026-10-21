@@ -405,10 +405,17 @@ class XiaozhiDevice(
     private fun handleMcp(payload: JSONObject?, w: WebSocket?) {
         if (payload == null || w == null) return
         val id = if (payload.has("id")) payload.opt("id") else null
+        // id bisa berupa angka besar (mis. 130); kirim apa adanya agar cocok
+        fun rootSessionId(payload: JSONObject?, fallback: String?): String? {
+            val s = payload?.optString("session_id") ?: return fallback
+            return if (s.isNullOrEmpty()) fallback else s
+        }
         fun reply(resultObj: JSONObject) {
             if (id == null) return
+            val sid = rootSessionId(payload, sessionId)
+            xzlog("MCP reply id=$id session=${sid ?: "-"}")
             sendJson(w, JSONObject().apply {
-                put("session_id", sessionId ?: JSONObject.NULL)
+                if (sid != null) put("session_id", sid)
                 put("type", "mcp")
                 put("payload", JSONObject().apply {
                     put("jsonrpc", "2.0")
@@ -419,8 +426,9 @@ class XiaozhiDevice(
         }
         fun replyError(msg: String) {
             if (id == null) return
+            val sid = rootSessionId(payload, sessionId)
             sendJson(w, JSONObject().apply {
-                put("session_id", sessionId ?: JSONObject.NULL)
+                if (sid != null) put("session_id", sid)
                 put("type", "mcp")
                 put("payload", JSONObject().apply {
                     put("jsonrpc", "2.0")
@@ -650,7 +658,10 @@ class XiaozhiDevice(
                 }
                 "llm" -> { /* emosi AI, diabaikan */ }
                 "system" -> { /* perintah sistem (reboot dll), diabaikan */ }
-                "mcp" -> handleMcp(root.optJSONObject("payload"), webSocketRef)
+                "mcp" -> {
+                    root.optString("session_id").takeIf { it.isNotEmpty() }?.let { sessionId = it }
+                    handleMcp(root.optJSONObject("payload"), webSocketRef)
+                }
             }
         } catch (e: Exception) {
             Log.w("XiaozhiDevice", "parse: $text", e)
