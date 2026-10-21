@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Xiaozhi Live Call</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+    background:#0d1117; font-family:'Inter','Roboto',system-ui,sans-serif; color:#fff; }
+  #app-root { position:fixed; inset:0; }
+
+  /* ---------- cozy anime room background ---------- */
+  #bg { position:absolute; inset:0; z-index:1; overflow:hidden; filter: blur(2px) saturate(1.1); transform: scale(1.04); transition: filter .4s; }
+  #bg.wall { position:absolute; inset:0;
+    background: linear-gradient(180deg, #2b2136 0%, #3a2b47 34%, #4a3355 55%, #31223a 100%); }
+  #bg .window { position:absolute; top:12%; left:58%; width:34vw; height:30vh; border-radius:14px;
+    background: linear-gradient(200deg, #6d7bd6 0%, #5566b8 45%, #3d4a8c 100%);
+    box-shadow: 0 0 60px 18px rgba(120,140,255,.28), inset 0 0 24px rgba(255,255,255,.12); }
+  #bg .window::after { content:""; position:absolute; left:50%; top:0; bottom:0; width:6px; margin-left:-3px; background:#2b2136; }
+  #bg .lamp { position:absolute; top:6%; left:6%; width:26vw; height:22vh; border-radius:50%;
+    background: radial-gradient(circle, rgba(255,200,120,.35) 0%, rgba(255,180,90,.12) 45%, transparent 70%); }
+  #bg .shelf { position:absolute; bottom:0; left:0; right:0; height:34%;
+    background: linear-gradient(180deg, rgba(24,16,30,0) 0%, rgba(20,13,26,.55) 30%, rgba(14,9,20,.9) 100%); }
+  #bg .bokeh { position:absolute; border-radius:50%; background:radial-gradient(circle, rgba(255,170,200,.16), transparent 70%); }
+  #vignette { position:absolute; inset:0; z-index:2; pointer-events:none;
+    background: radial-gradient(ellipse at 50% 30%, transparent 40%, rgba(0,0,0,.55) 100%); }
+
+  #live2d-canvas { position:absolute; inset:0; z-index:10; }
+  #particles { position:absolute; inset:0; z-index:12; pointer-events:none; }
+  #camera-off { position:absolute; inset:0; z-index:13; display:none;
+    background:rgba(10,12,18,.96); }
+  #camera-off .avatar { position:absolute; left:50%; top:42%; transform:translate(-50%,-50%);
+    width:96px; height:96px; border-radius:999px; background:linear-gradient(135deg,#8b7bd8,#5b4a9e);
+    display:flex; align-items:center; justify-content:center; font-size:38px; font-weight:800; }
+
+  /* ---------- header ---------- */
+  #hdr { position:absolute; top:0; left:0; right:0; z-index:30; padding:14px 16px;
+    display:flex; align-items:center; justify-content:space-between;
+    padding-top:max(14px, env(safe-area-inset-top)); }
+  .glass { background:rgba(20,22,34,.55); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.14); }
+  .glass-soft { background:rgba(18,20,32,.44); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,.12); }
+  #live-badge { display:flex; align-items:center; gap:8px; border-radius:999px; padding:7px 13px; font-size:12px; font-weight:600; }
+  .dot-live { width:8px; height:8px; border-radius:999px; background:#22c55e; box-shadow:0 0 0 0 rgba(34,197,94,.7); animation:pulse 1.6s infinite; }
+  .dot-off { background:#6b7280; animation:none; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)} 70%{box-shadow:0 0 0 10px rgba(34,197,94,0)} 100%{box-shadow:0 0 0 0 rgba(34,197,94,0)} }
+  .hdr-btn { width:40px; height:40px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:15px; color:#e5e7eb; }
+  #btn-end { background:linear-gradient(135deg,#ef4444,#b91c1c); border:1px solid rgba(255,255,255,.18);
+    border-radius:999px; padding:0 16px; height:40px; display:flex; align-items:center; gap:7px;
+    font-size:12.5px; font-weight:800; letter-spacing:.3px; }
+
+  /* ---------- subtitle & status pill ---------- */
+  #subtitle { position:absolute; left:50%; bottom:238px; transform:translateX(-50%); z-index:30;
+    max-width:88%; display:none; }
+  #subtitle .txt { border-radius:16px; padding:10px 14px; font-size:13px; line-height:1.45; color:#f3f4f6;
+    background:rgba(15,17,27,.62); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.12); }
+
+  /* ---------- bottom sheet ---------- */
+  #sheet { position:absolute; left:12px; right:12px; bottom:12px; z-index:30;
+    padding-bottom:max(14px, env(safe-area-inset-bottom));
+    border-radius:26px; padding-top:16px; box-shadow:0 18px 50px rgba(0,0,0,.55); }
+  #status-row { display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:10px; min-height:20px; }
+  #status-txt { font-size:12.5px; font-weight:600; color:#dbeafe; letter-spacing:.2px; }
+  #mic-live { color:#22d3ee; animation:micblink 1.2s infinite; display:none; }
+  @keyframes micblink { 0%,100%{opacity:1} 50%{opacity:.35} }
+  #wave { width:100%; height:56px; display:block; }
+  #controls { display:flex; align-items:center; justify-content:center; gap:14px; margin-top:12px; }
+  .ctl { width:52px; height:52px; border-radius:999px; display:flex; align-items:center; justify-content:center;
+    font-size:19px; color:#e5e7eb; transition:all .2s; }
+  .ctl.off { background:rgba(120,20,40,.55); color:#fca5a5; border-color:rgba(255,120,140,.35); }
+  #btn-talk { width:64px; height:64px; font-size:23px; border-radius:999px;
+    background:linear-gradient(135deg,#ec4899,#8b5cf6); color:#fff;
+    box-shadow:0 8px 26px rgba(236,72,153,.45); border:1px solid rgba(255,255,255,.25);
+    transition:transform .12s, box-shadow .2s; }
+  #btn-talk.holding { transform:scale(1.13); box-shadow:0 6px 34px rgba(56,189,248,.75);
+    background:linear-gradient(135deg,#06b6d4,#3b82f6); }
+
+  /* ---------- drawers ---------- */
+  .drawer { position:absolute; inset:0; z-index:50; display:none; background:rgba(5,7,12,.72); backdrop-filter:blur(6px); }
+  .drawer .panel { position:absolute; left:0; right:0; bottom:0; border-radius:24px 24px 0 0;
+    padding:18px 16px calc(18px + env(safe-area-inset-bottom)); max-height:76%; overflow-y:auto; }
+  .drawer h3 { margin:0 0 12px; font-size:14px; font-weight:800; letter-spacing:.4px; color:#e2e8f0; }
+  .chatline { font-size:12.5px; line-height:1.5; padding:7px 10px; border-radius:10px; margin-bottom:6px; }
+  .chatline.you { background:rgba(56,189,248,.14); color:#bae6fd; text-align:right; }
+  .chatline.ai  { background:rgba(236,72,153,.14); color:#fbcfe8; }
+  .chatline.sys { background:rgba(148,163,184,.12); color:#cbd5e1; font-size:11px; }
+  .set-row { margin-bottom:12px; }
+  .set-lbl { font-size:10.5px; font-weight:700; color:#94a3b8; margin-bottom:5px; letter-spacing:.5px; }
+  .set-input { width:100%; box-sizing:border-box; border-radius:10px; padding:9px 11px; font-size:12px;
+    background:rgba(8,10,18,.6); border:1px solid rgba(255,255,255,.16); color:#e2e8f0; outline:none; }
+  .set-slider { width:100%; accent-color:#ec4899; }
+  .pill-btn { border-radius:999px; padding:9px 18px; font-size:12px; font-weight:700;
+    background:linear-gradient(135deg,#ec4899,#8b5cf6); color:#fff; border:none; }
+
+  /* ---------- activation overlay ---------- */
+  #activation { position:absolute; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
+    background:rgba(6,8,14,.85); backdrop-filter:blur(8px); flex-direction:column; text-align:center; padding:24px; }
+  #act-code { font-size:52px; font-weight:900; letter-spacing:10px; color:#f9a8d4; margin:8px 0;
+    text-shadow:0 0 30px rgba(236,72,153,.6); }
+
+  /* ---------- connect gate ---------- */
+  #gate { position:absolute; inset:0; z-index:40; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:18px; background:rgba(8,10,17,.55); backdrop-filter:blur(4px); }
+  #gate .who { width:110px; height:110px; border-radius:999px; border:3px solid rgba(255,255,255,.25);
+    object-fit:cover; pointer-events:none; }
+  #btn-start-call { display:flex; align-items:center; gap:10px; border-radius:999px; padding:14px 30px;
+    font-size:15px; font-weight:800; color:#fff; background:linear-gradient(135deg,#22c55e,#15803d);
+    box-shadow:0 10px 34px rgba(34,197,94,.5); border:1px solid rgba(255,255,255,.22); }
+</style>
+</head>
+<body>
+<div id="app-root">
+
+  <div id="bg">
+    <div class="wall"></div>
+    <div class="lamp"></div>
+    <div class="window"></div>
+    <div class="shelf"></div>
+    <div class="bokeh" style="width:90px;height:90px;top:30%;left:12%"></div>
+    <div class="bokeh" style="width:60px;height:60px;top:18%;left:40%"></div>
+    <div class="bokeh" style="width:120px;height:120px;top:55%;left:78%;background:radial-gradient(circle, rgba(120,220,255,.13), transparent 70%)"></div>
+  </div>
+  <div id="vignette"></div>
+
+  <canvas id="live2d-canvas"></canvas>
+  <canvas id="particles"></canvas>
+
+  <div id="camera-off">
+    <div class="avatar">C</div>
+    <div style="position:absolute;bottom:30%;left:0;right:0;text-align:center;font-size:12px;color:#94a3b8;">Kamera dimatikan</div>
+  </div>
+
+  <div id="hdr">
+    <div id="live-badge" class="glass-soft">
+      <span id="live-dot" class="dot-live dot-off"></span>
+      <span id="live-txt">Tidak terhubung</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div class="hdr-btn glass-soft" id="btn-history" title="Riwayat">&#128218;</div>
+      <div class="hdr-btn glass-soft" id="btn-settings" title="Pengaturan">&#9881;&#65039;</div>
+      <div id="btn-end">&#128379;&#65039; End Call</div>
+    </div>
+  </div>
+
+  <div id="subtitle"><div class="txt" id="subtitle-txt"></div></div>
+
+  <div id="gate">
+    <div class="who" id="gate-face"></div>
+    <div style="font-size:17px;font-weight:800;" id="gate-title">Panggilan Video AI</div>
+    <div style="font-size:12px;color:#94a3b8;max-width:280px;text-align:center;line-height:1.5;" id="gate-sub">
+      Hubungkan ke Xiaozhi untuk memulai panggilan video dengan partner AI kamu.
+    </div>
+    <button id="btn-start-call">&#128222; Mulai Panggilan</button>
+    <div style="font-size:10px;color:#64748b;line-height:1.6;" id="gate-device"></div>
+  </div>
+
+  <div id="activation">
+    <div style="font-size:13px;color:#cbd5e1;">Masukkan kode ini di console xiaozhi.me</div>
+    <div id="act-code">------</div>
+    <div style="font-size:11px;color:#94a3b8;" id="act-msg"></div>
+  </div>
+
+  <div id="sheet" class="glass">
+    <div id="status-row">
+      <span id="status-ico">&#127911;</span>
+      <span id="mic-live">&#127908;</span>
+      <span id="status-txt">Tekan Mulai Panggilan</span>
+    </div>
+    <canvas id="wave"></canvas>
+    <div id="controls">
+      <div class="ctl glass-soft" id="btn-mute" title="Mute">&#127908;</div>
+      <div id="btn-talk">&#128483;&#65039;</div>
+      <div class="ctl glass-soft" id="btn-cam" title="Kamera">&#128249;</div>
+      <div class="ctl glass-soft" id="btn-expr" title="Ekspresi">&#10024;</div>
+    </div>
+  </div>
+
+  <div class="drawer" id="drawer-history">
+    <div class="panel glass">
+      <h3>PERCAKAPAN</h3>
+      <div id="chat-log"><div style="font-size:11.5px;color:#64748b;">Belum ada percakapan.</div></div>
+      <button class="pill-btn" style="margin-top:12px;width:100%;" onclick="closeDrawers()">Tutup</button>
+    </div>
+  </div>
+
+  <div class="drawer" id="drawer-settings">
+    <div class="panel glass">
+      <h3>PENGATURAN</h3>
+      <div class="set-row">
+        <div class="set-lbl">URL MODEL LIVE2D (.model3.json / .model.json)</div>
+        <input class="set-input" id="inp-model" placeholder="https://.../model.model3.json">
+        <button class="pill-btn" style="margin-top:8px;" id="btn-apply-model">Muat Model</button>
+      </div>
+      <div class="set-row">
+        <div class="set-lbl">ZOOM KARAKTER (<span id="lbl-zoom">2.0</span>x tinggi layar)</div>
+        <input type="range" class="set-slider" id="inp-zoom" min="1.2" max="3.2" step="0.05">
+      </div>
+      <div class="set-row">
+        <div class="set-lbl">GESER VERTIKAL (<span id="lbl-dy">1.7</span>x tinggi layar)</div>
+        <input type="range" class="set-slider" id="inp-dy" min="0.8" max="2.6" step="0.05">
+      </div>
+      <div style="font-size:10px;color:#64748b;line-height:1.7;" id="set-device"></div>
+      <button class="pill-btn" style="margin-top:12px;width:100%;" onclick="closeDrawers()">Tutup</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+<script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/index.min.js"></script>
+<script>
+/* =================================================================
+   Xiaozhi Live Video Call - UI layer
+   Bridge: window.onXXX dipanggil dari Kotlin (evaluateJavascript)
+   Kontrol: AndroidBridge.XXX dipanggil dari sini ke Kotlin
+   ================================================================= */
+
+var STATE = {
+  connected: false, listening: false, thinking: false,
+  speaking: false, muted: false, camOn: true,
+  micLevel: 0, ttsLevel: 0,
+  chat: []
+};
+var DEFAULT_MODEL = "https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display@master/test/assets/haru/haru_greeter_t03.model3.json";
+var cfg = {
+  model: localStorage.getItem("xzh_model") || DEFAULT_MODEL,
+  zoom: parseFloat(localStorage.getItem("xzh_zoom") || "2.0"),
+  dy:   parseFloat(localStorage.getItem("xzh_dy")   || "1.7")
+};
+
+/* ---------------- Live2D ---------------- */
+var app = null, model = null, mouthTarget = 0, exprIdx = 0;
+
+async function bootLive2D() {
+  try {
+    app = new PIXI.Application({
+      view: document.getElementById("live2d-canvas"),
+      resizeTo: window, backgroundAlpha: 0, antialias: true,
+      autoDensity: true, resolution: window.devicePixelRatio || 1
+    });
+    await loadModel(cfg.model);
+  } catch (e) {
+    console.error("live2d boot fail", e);
+    setStatus("Gagal memuat karakter (cek koneksi)", false);
+  }
+}
+
+async function loadModel(url) {
+  try {
+    if (model) { app.stage.removeChild(model); model.destroy(); model = null; }
+    model = await PIXI.live2d.Live2DModel.from(url, { autoInteract: true });
+    model.anchor.set(0.5, 1);
+    app.stage.addChild(model);
+    layoutModel();
+    try { model.motion("Idle"); } catch (e) {}
+    /* lip-sync: set parameter mulut SETELAH update internal model */
+    app.ticker.add(function () {
+      if (!model || !STATE.speaking) return;
+      try {
+        var core = model.internal.core;
+        var v = mouthTarget * 1.4;
+        if (v > 1) v = 1;
+        if (core && core.setParameterValueById) core.setParameterValueById("ParamMouthOpenY", v);
+      } catch (e) {}
+    });
+  } catch (e) {
+    console.error("model load fail", e);
+    setStatus("Model gagal dimuat: " + url, false);
+  }
+}
+
+function layoutModel() {
+  if (!model || !app) return;
+  var w = app.screen.width, h = app.screen.height;
+  var oh = model.internal.originalHeight || 1400;
+  var s = (h * cfg.zoom) / oh;
+  model.scale.set(s);
+  model.position.set(w / 2, h * cfg.dy);
+}
+
+/* fokus mata/kepala mengikuti sentuhan & kursor */
+window.addEventListener("pointermove", function (e) {
+  if (model && model.focus) { try { model.focus(e.clientX, e.clientY); } catch (e2) {} }
+}, { passive: true });
+window.addEventListener("pointerdown", function (e) {
+  if (model && model.focus) { try { model.focus(e.clientX, e.clientY); } catch (e2) {} }
+}, { passive: true });
+
+function triggerExpression() {
+  if (!model) return;
+  try {
+    if (model.internal.motionManager.expressionManager && model.internal.motionManager.expressionManager.setRandomExpression) {
+      model.internal.motionManager.expressionManager.setRandomExpression();
+    } else { model.motion("Tap"); }
+    model.motion("Tap");
+  } catch (e) { try { model.motion("Tap"); } catch (e2) {} }
+}
+
+/* ---------------- thinking particles ---------------- */
+var pCanvas = document.getElementById("particles"), pCtx = pCanvas.getContext("2d"), parts = [];
+function fitParticles() { pCanvas.width = innerWidth; pCanvas.height = innerHeight; }
+fitParticles(); window.addEventListener("resize", fitParticles);
+(function particleLoop() {
+  requestAnimationFrame(particleLoop);
+  pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+  if (STATE.thinking) {
+    if (parts.length < 26 && Math.random() < .3) {
+      parts.push({ x: Math.random() * pCanvas.width, y: pCanvas.height + 10,
+        r: 2 + Math.random() * 4, vy: .5 + Math.random() * 1.4, a: 0,
+        hue: Math.random() < .5 ? "255,140,190" : "120,220,255" });
+    }
+  }
+  for (var i = parts.length - 1; i >= 0; i--) {
+    var p = parts[i];
+    p.y -= p.vy; p.a += .012;
+    if (p.y < pCanvas.height * .35 || p.a > 1) { parts.splice(i, 1); continue; }
+    var g = pCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 3);
+    g.addColorStop(0, "rgba(" + p.hue + "," + (.5 * p.a) + ")");
+    g.addColorStop(1, "rgba(" + p.hue + ",0)");
+    pCtx.fillStyle = g;
+    pCtx.beginPath(); pCtx.arc(p.x, p.y, p.r * 3, 0, 7); pCtx.fill();
+  }
+})();
+
+/* ---------------- waveform visualizer ---------------- */
+var wCanvas = document.getElementById("wave"), wCtx = wCanvas.getContext("2d"), wPhase = 0;
+function fitWave() { wCanvas.width = wCanvas.clientWidth * (window.devicePixelRatio || 1); wCanvas.height = wCanvas.clientHeight * (window.devicePixelRatio || 1); }
+fitWave(); window.addEventListener("resize", fitWave);
+(function waveLoop() {
+  requestAnimationFrame(waveLoop);
+  var W = wCanvas.width, H = wCanvas.height; if (!W) return;
+  wCtx.clearRect(0, 0, W, H);
+  var level = STATE.listening ? STATE.micLevel : (STATE.speaking ? STATE.ttsLevel : 0);
+  var idle = (!STATE.listening && !STATE.speaking) ? 0.035 : 0;
+  wPhase += .25;
+  var bars = 42, bw = W / bars;
+  for (var i = 0; i < bars; i++) {
+    var t = i / (bars - 1);
+    var env = Math.sin(Math.PI * t);
+    var n = Math.sin(wPhase + i * .55) * .5 + Math.sin(wPhase * 1.7 + i * 1.3) * .3;
+    var v = Math.max(0, (level * 1.9 * (0.45 + env) + idle) * (0.55 + n * .55));
+    var bh = Math.min(H, v * H * 1.15 + 2);
+    var g = wCtx.createLinearGradient(0, H / 2 - bh / 2, 0, H / 2 + bh / 2);
+    g.addColorStop(0, "rgba(56,189,248,.95)");
+    g.addColorStop(1, "rgba(236,72,153,.95)");
+    wCtx.fillStyle = g;
+    var x = i * bw + bw * .18, w = bw * .64;
+    wCtx.beginPath();
+    var r = Math.min(w / 2, 3);
+    var y = (H - bh) / 2;
+    wCtx.moveTo(x + r, y);
+    wCtx.arcTo(x + w, y, x + w, y + bh, r);
+    wCtx.arcTo(x + w, y + bh, x, y + bh, r);
+    wCtx.arcTo(x, y + bh, x, y, r);
+    wCtx.arcTo(x, y, x + w, y, r);
+    wCtx.fill();
+  }
+})();
+
+/* ---------------- UI helpers ---------------- */
+function $(id) { return document.getElementById(id); }
+function setStatus(t, withIcon) {
+  $("status-txt").textContent = t;
+  $("status-ico").innerHTML = withIcon === false ? "" : "&#127911;";
+}
+function pushChat(role, text) {
+  STATE.chat.push({ role: role, text: text });
+  var log = $("chat-log");
+  if (STATE.chat.length === 1) log.innerHTML = "";
+  var div = document.createElement("div");
+  div.className = "chatline " + (role === "Anda" ? "you" : role === "AI" ? "ai" : "sys");
+  div.textContent = role + ": " + text;
+  log.appendChild(div);
+  log.parentElement.scrollTop = log.parentElement.scrollHeight;
+  if (role === "AI") {
+    $("subtitle-txt").textContent = text;
+    $("subtitle").style.display = "block";
+  }
+}
+function refreshBadge() {
+  var d = $("live-dot"), t = $("live-txt");
+  if (STATE.connected) { d.className = "dot-live"; t.textContent = "Live Video Call"; }
+  else { d.className = "dot-live dot-off"; t.textContent = "Tidak terhubung"; }
+}
+
+/* dipanggil Kotlin */
+window.onStatus = function (t) { setStatus(t); };
+window.onConnected = function () {
+  STATE.connected = true; STATE.thinking = false;
+  $("gate").style.display = "none";
+  setStatus("Siap! Tahan tombol tengah untuk bicara");
+  refreshBadge();
+};
+window.onDisconnected = function (reason) {
+  STATE.connected = false; STATE.listening = false; STATE.thinking = false; STATE.speaking = false;
+  $("gate").style.display = "flex";
+  $("gate-sub").textContent = "Terputus: " + reason + ". Ketuk untuk menyambung lagi.";
+  setStatus("Terputus: " + reason);
+  $("subtitle").style.display = "none";
+  refreshBadge();
+};
+window.onChat = function (role, text) { pushChat(role, text); };
+window.onSpeaking = function (b) {
+  STATE.speaking = b;
+  if (!b) { mouthTarget = 0; $("subtitle").style.display = "none"; setStatus("Siap! Tahan tombol tengah untuk bicara"); }
+  else setStatus("Partner sedang berbicara...");
+};
+window.onThinking = function (b) {
+  STATE.thinking = b;
+  if (b) setStatus("Sedang berpikir...");
+};
+window.onMicLevel = function (v) { STATE.micLevel = v; };
+window.onTtsLevel = function (v) { STATE.ttsLevel = v; mouthTarget = Math.min(1, v * 2.6); };
+window.onActivation = function (code, msg) {
+  $("activation").style.display = "flex";
+  $("act-code").textContent = code;
+  $("act-msg").textContent = msg || "";
+  setStatus("Aktivasi: masukkan kode di console xiaozhi.me");
+};
+window.onActivationDone = function () { $("activation").style.display = "none"; };
+window.onDeviceInfo = function (info) {
+  $("gate-device").textContent = info;
+  $("set-device").textContent = info;
+};
+
+/* ---------------- controls ---------------- */
+function talkStart() {
+  if (!STATE.connected || STATE.muted) return;
+  STATE.listening = true;
+  $("mic-live").style.display = "inline";
+  $("btn-talk").classList.add("holding");
+  setStatus("Sedang mendengarkan...");
+  if (window.AndroidBridge) AndroidBridge.talkStart();
+}
+function talkEnd() {
+  if (!STATE.listening) return;
+  STATE.listening = false;
+  $("mic-live").style.display = "none";
+  $("btn-talk").classList.remove("holding");
+  if (window.AndroidBridge) AndroidBridge.talkStop();
+}
+
+var talkBtn = $("btn-talk");
+talkBtn.addEventListener("pointerdown", function (e) { e.preventDefault(); talkStart(); });
+talkBtn.addEventListener("pointerup",   function () { talkEnd(); });
+talkBtn.addEventListener("pointercancel", function () { talkEnd(); });
+talkBtn.addEventListener("pointerleave", function () { talkEnd(); });
+
+$("btn-mute").addEventListener("click", function () {
+  STATE.muted = !STATE.muted;
+  this.classList.toggle("off", STATE.muted);
+  this.innerHTML = STATE.muted ? "&#128263;" : "&#127908;";
+  setStatus(STATE.muted ? "Mic dibisukan" : "Mic aktif");
+});
+$("btn-cam").addEventListener("click", function () {
+  STATE.camOn = !STATE.camOn;
+  this.classList.toggle("off", !STATE.camOn);
+  $("camera-off").style.display = STATE.camOn ? "none" : "flex";
+  $("live2d-canvas").style.visibility = STATE.camOn ? "visible" : "hidden";
+});
+$("btn-expr").addEventListener("click", triggerExpression);
+
+$("btn-start-call").addEventListener("click", function () {
+  if (window.AndroidBridge) AndroidBridge.connect();
+  setStatus("Menghubungkan...");
+});
+$("btn-end").addEventListener("click", function () {
+  if (STATE.connected) { if (window.AndroidBridge) AndroidBridge.disconnect(); }
+  else { $("gate").style.display = "flex"; }
+});
+$("btn-history").addEventListener("click", function () { $("drawer-history").style.display = "block"; });
+$("btn-settings").addEventListener("click", function () {
+  $("inp-model").value = cfg.model;
+  $("inp-zoom").value = cfg.zoom; $("lbl-zoom").textContent = cfg.zoom.toFixed(2);
+  $("inp-dy").value = cfg.dy; $("lbl-dy").textContent = cfg.dy.toFixed(2);
+  $("drawer-settings").style.display = "block";
+});
+function closeDrawers() {
+  $("drawer-history").style.display = "none";
+  $("drawer-settings").style.display = "none";
+}
+document.querySelectorAll(".drawer").forEach(function (d) {
+  d.addEventListener("click", function (e) { if (e.target === d) closeDrawers(); });
+});
+
+/* settings actions */
+$("btn-apply-model").addEventListener("click", function () {
+  var u = $("inp-model").value.trim();
+  if (!u) return;
+  cfg.model = u; localStorage.setItem("xzh_model", u);
+  setStatus("Memuat model baru...");
+  loadModel(u);
+});
+$("inp-zoom").addEventListener("input", function () {
+  cfg.zoom = parseFloat(this.value); $("lbl-zoom").textContent = cfg.zoom.toFixed(2);
+  localStorage.setItem("xzh_zoom", cfg.zoom); layoutModel();
+});
+$("inp-dy").addEventListener("input", function () {
+  cfg.dy = parseFloat(this.value); $("lbl-dy").textContent = cfg.dy.toFixed(2);
+  localStorage.setItem("xzh_dy", cfg.dy); layoutModel();
+});
+
+/* mulai */
+bootLive2D();
+$("gate-device").textContent = "Device: -";
+</script>
+</body>
+</html>
