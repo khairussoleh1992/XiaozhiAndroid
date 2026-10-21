@@ -5,7 +5,10 @@ import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.View
+import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -42,9 +45,19 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             mediaPlaybackRequiresUserGesture = false
             loadWithOverviewMode = true
             useWideViewPort = true
+            @SuppressWarnings("DEPRECATION")
+            allowFileAccessFromFileURLs = true
+            @SuppressWarnings("DEPRECATION")
+            allowUniversalAccessFromFileURLs = true
         }
         webView.setBackgroundColor(0xFF0D1117.toInt())
         webView.webViewClient = WebViewClient()
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(cm: ConsoleMessage): Boolean {
+                Log.d("XZWeb", "[${cm.messageLineNumber()}] ${cm.message()}")
+                return true
+            }
+        }
         webView.addJavascriptInterface(Bridge(), "AndroidBridge")
         webView.loadUrl("file:///android_asset/videocall.html")
 
@@ -62,6 +75,8 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                     ActivityCompat.requestPermissions(
                         this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), permCode)
                 } else {
+                    // start() kini selalu memulai ulang loop koneksi (generation),
+                    // jadi tombol bisa dipencet berulang kali.
                     device?.start()
                 }
             }

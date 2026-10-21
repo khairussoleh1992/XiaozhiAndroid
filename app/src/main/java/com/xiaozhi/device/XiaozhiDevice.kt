@@ -93,6 +93,7 @@ class XiaozhiDevice(
 
     private val exec = Executors.newSingleThreadExecutor()
     @Volatile private var running = false
+    @Volatile private var generation = 0
     @Volatile private var sessionId: String? = null
     @Volatile private var speaking = false
     @Volatile private var thinking = false
@@ -101,13 +102,17 @@ class XiaozhiDevice(
 
     fun deviceInfo(): String = "Device-Id: $mac\nClient-Id: $uuid"
 
+    /** Bisa dipanggil berulang: tiap panggilan membatalkan loop lama
+     *  dan memulai loop koneksi baru (generation counter). */
     fun start() {
-        if (running) return
+        generation++
         running = true
-        exec.execute { runLoop() }
+        val g = generation
+        exec.execute { runLoop(g) }
     }
 
     fun stop() {
+        generation++
         running = false
         sessionId = null
         audio?.stopAll()
@@ -160,8 +165,8 @@ class XiaozhiDevice(
 
     // ---------------- loop utama ----------------
 
-    private fun runLoop() {
-        while (running) {
+    private fun runLoop(g: Int) {
+        while (running && g == generation) {
             try {
                 uiStatus("Cek server (OTA)...")
                 val ota = otaCheck()
@@ -185,13 +190,14 @@ class XiaozhiDevice(
                     if (!running) break
                 }
 
+                if (!running || g != generation) return
                 uiStatus("Menghubungkan websocket...")
-                connectWs(wsUrl, token, protoVer)
+                connectWs(wsUrl, token, protoVer, g)
                 return   // connectWs menangani selanjutnya lewat listener
             } catch (e: Exception) {
                 Log.e("XiaozhiDevice", "loop error", e)
                 uiStatus("Error: ${e.message ?: "unknown"}")
-                if (!running) break
+                if (!running || g != generation) break
                 try { Thread.sleep(5000) } catch (_: InterruptedException) { break }
             }
         }
@@ -257,7 +263,7 @@ class XiaozhiDevice(
 
     // ---------------- websocket ----------------
 
-    private fun connectWs(url: String, token: String, protoVer: Int) {
+    private fun connectWs(url: String, token: String, protoVer: Int, g: Int) {
         val req = Request.Builder()
             .url(url)
             .header("Authorization", token)
@@ -276,6 +282,7 @@ class XiaozhiDevice(
         )
         audio = eng
 
+        if (!running || g != generation) return
         ws = wsClient.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 val hello = JSONObject().apply {
@@ -307,14 +314,14 @@ class XiaozhiDevice(
                 Log.e("XiaozhiDevice", "WS fail: ${t.message} resp=${response?.code}")
                 audio?.stopAll()
                 ui.post { listener.onDisconnected(t.message ?: "connection failed") }
-                scheduleReconnect()
+                scheduleReconnect(g)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i("XiaozhiDevice", "WS closed: $code $reason")
                 audio?.stopAll()
                 ui.post { listener.onDisconnected("closed: $reason") }
-                scheduleReconnect()
+                scheduleReconnect(g)
             }
         })
     }
@@ -369,13 +376,13 @@ class XiaozhiDevice(
         try { w.send(obj.toString()) } catch (_: Exception) { }
     }
 
-    private fun scheduleReconnect() {
-        if (!running) return
+    private fun scheduleReconnect(g: Int) {
+        if (!running || g != generation) return
         ws = null
         sessionId = null
         exec.execute {
             try { Thread.sleep(3000) } catch (_: InterruptedException) { }
-            if (running) runLoop()
+            if (running && g == generation) runLoop(g)
         }
     }
 
