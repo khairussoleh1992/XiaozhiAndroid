@@ -75,27 +75,39 @@ class XiaozhiAccessibilityService : AccessibilityService() {
     }
 
     // Fungsi pintar: Pergi ke Home -> Baca layar -> Cari ikon aplikasi -> Klik otomatis
-    fun openAppByNameOnScreen(targetName: String, done: (Boolean) -> Unit) {
+        fun openAppByNameOnScreen(targetName: String, done: (Boolean) -> Unit) {
+        Log.d("XZAccess", "Mencoba membuka aplikasi: $targetName")
         performGlobalAction(GLOBAL_ACTION_HOME)
+        
+        // Beri jeda 1000ms (1 detik) agar halaman utama benar-benar terbuka
         android.os.Handler(mainLooper).postDelayed({
             val root = rootInActiveWindow
             if (root == null) {
+                Log.e("XZAccess", "Gagal: rootInActiveWindow bernilai NULL (Aksesibilitas mungkin belum aktif di sistem)")
                 done(false)
                 return@postDelayed
             }
+
+            // Debug: Cek apakah teks di layar bisa dibaca
+            val allText = dumpScreenText()
+            Log.d("XZAccess", "Teks yang terbaca di layar:\n$allText")
+
             val targetNode = findNodeByText(root, targetName)
             if (targetNode != null) {
+                Log.d("XZAccess", "Aplikasi $targetName ditemukan di layar! Mencoba klik...")
                 if (targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     done(true)
                 } else {
                     val rect = Rect()
                     targetNode.getBoundsInScreen(rect)
+                    Log.d("XZAccess", "Klik node gagal, mencoba klik koordinat: ${rect.centerX()}, ${rect.centerY()}")
                     tapXY(rect.centerX().toFloat(), rect.centerY().toFloat(), done)
                 }
             } else {
+                Log.e("XZAccess", "Aplikasi $targetName tidak ditemukan di node layar manapun.")
                 done(false)
             }
-        }, 800)
+        }, 1000)
     }
 
     private fun findNodeByText(node: AccessibilityNodeInfo, target: String): AccessibilityNodeInfo? {
