@@ -205,6 +205,8 @@
         <input type="range" class="set-slider" id="inp-dy" min="0.8" max="2.6" step="0.05">
       </div>
       <div style="font-size:10px;color:#64748b;line-height:1.7;" id="set-device"></div>
+      <div class="set-lbl" style="margin-top:12px;">LOG JARINGAN (terbaru di atas)</div>
+      <pre id="xzlog" style="font-size:10px;line-height:1.5;color:#9fb0c3;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:8px;max-height:180px;overflow:auto;white-space:pre-wrap;margin:4px 0 0 0;font-family:monospace;"></pre>
       <button class="pill-btn" style="margin-top:12px;width:100%;" onclick="closeDrawers()">Tutup</button>
     </div>
   </div>
@@ -464,6 +466,16 @@ window.onActivation = function (code, msg) {
   setStatus("Aktivasi: masukkan kode di console xiaozhi.me");
 };
 window.onActivationDone = function () { $("activation").style.display = "none"; };
+window.onXzLog = function (line) {
+  window._xzLogs = window._xzLogs || [];
+  var d = new Date();
+  var t = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+  window._xzLogs.unshift(t + " " + line);
+  if (window._xzLogs.length > 40) window._xzLogs.pop();
+  var el = document.getElementById("xzlog");
+  if (el) el.textContent = window._xzLogs.join("\n");
+};
+
 window.onDeviceInfo = function (info) {
   $("gate-device").textContent = info;
   $("set-device").textContent = info;
