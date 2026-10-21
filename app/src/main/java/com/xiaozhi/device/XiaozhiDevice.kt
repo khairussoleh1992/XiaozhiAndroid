@@ -474,6 +474,11 @@ class XiaozhiDevice(
                             put("type", "string")
                             put("description", "The question that you want to ask about the photo.")
                         })
+                        put("camera", JSONObject().apply {
+                            put("type", "string")
+                            put("enum", org.json.JSONArray().put("front").put("back"))
+                            put("description", "Optional: which camera to use. Default front.")
+                        })
                     })
                     put("required", org.json.JSONArray().put("question"))
                 }
@@ -501,20 +506,31 @@ class XiaozhiDevice(
                     put("description", "Set the volume of the audio speaker (0-100).")
                     put("inputSchema", volSchema)
                 })
-                reply(JSONObject().apply {
-                    put("tools", toolsArr.put(JSONObject().apply {
-                        put("name", "self.camera.take_photo")
-                        put("description",
-                            "Always remember you have a camera. If the user asks you to see something, " +
-                            "use this tool to take a photo and then explain it. " +
-                            "Args: `question`: The question that you want to ask about the photo. " +
-                            "Return: A JSON object that provides the photo information.")
-                        put("inputSchema", schema)
-                    }))
-                    // JANGAN kirim nextCursor kosong: server mengira masih ada
-                    // halaman berikutnya lalu mengulang tools/list tanpa henti
+                toolsArr.put(JSONObject().apply {
+                    put("name", "self.camera.take_photo")
+                    put("description",
+                        "FRONT (selfie) camera, the default. For the REAR/back camera pass " +
+                        "camera: back in arguments or use take_photo_back. " +
+                        "Args: `question`: The question that you want to ask about the photo. " +
+                        "Return: A JSON object that provides the photo information.")
+                    put("inputSchema", schema)
                 })
-                xzlog("MCP tools/list dijawab: 1 tool, tanpa nextCursor")
+                toolsArr.put(JSONObject().apply {
+                    put("name", "self.camera.take_photo_back")
+                    put("description",
+                        "REAR (back) camera. Use when the user asks to see something around or " +
+                        "behind the phone, an object they hold up, or says kamera belakang / " +
+                        "back camera. Otherwise prefer take_photo (front). " +
+                        "Args: `question`: The question that you want to ask about the photo. " +
+                        "Return: A JSON object that provides the photo information.")
+                    put("inputSchema", schema)
+                })
+                // JANGAN kirim nextCursor kosong: server mengira masih ada
+                // halaman berikutnya lalu mengulang tools/list tanpa henti
+                reply(JSONObject().apply {
+                    put("tools", toolsArr)
+                })
+                xzlog("MCP tools/list dijawab: 4 tools, tanpa nextCursor")
             }
             "tools/call" -> {
                 val name = payload.optJSONObject("params")?.optString("name") ?: ""
@@ -537,13 +553,16 @@ class XiaozhiDevice(
                     })
                     return
                 }
-                if (name != "self.camera.take_photo") {
+                val camBack = name.endsWith("back") ||
+                    (payload.optJSONObject("params")?.optJSONObject("arguments")
+                        ?.optString("camera") == "back")
+                if (name != "self.camera.take_photo" && name != "self.camera.take_photo_back") {
                     replyError("Unknown tool: $name"); return
                 }
-                xzlog("AI minta foto: $question")
-                uiStatus("Mengambil foto untuk AI...")
+                xzlog("AI minta foto (${if (camBack) "belakang" else "depan"}): $question")
+                uiStatus(if (camBack) "Foto kamera belakang..." else "Mengambil foto untuk AI...")
                 camExec.execute {
-                    val answer = try { explainPhoto(question) }
+                    val answer = try { explainPhoto(question, useBack = camBack) }
                         catch (e: Exception) {
                             xzlog("kamera error: ${e.javaClass.simpleName}: ${e.message}")
                             "{\"success\":false,\"message\":\"camera error: ${e.javaClass.simpleName}\"}"
@@ -561,15 +580,17 @@ class XiaozhiDevice(
     }
 
     /** Ambil 1 foto JPEG (kamera belakang) maksimal ~800px sisi terpanjang */
-    private fun captureJpeg(maxSide: Int = 800): ByteArray? {
+    private fun captureJpeg(maxSide: Int = 800, useBack: Boolean = false): ByteArray? {
         val cm = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        // kamera depan (selfie) supaya AI "melihat" kita seperti video call
+        // default kamera depan (selfie); useBack=true -> kamera belakang
+        val wantFacing = if (useBack) CameraCharacteristics.LENS_FACING_BACK
+                         else CameraCharacteristics.LENS_FACING_FRONT
         val frontId = cm.cameraIdList.firstOrNull {
             cm.getCameraCharacteristics(it)
-                .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+                .get(CameraCharacteristics.LENS_FACING) == wantFacing
         }
         val camId = frontId ?: cm.cameraIdList.firstOrNull() ?: return null
-        val jpegRot = if (frontId != null) 270 else 90
+        val jpegRot = if (frontId != null) (if (useBack) 90 else 270) else 90
         val chars = cm.getCameraCharacteristics(camId)
         val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val size = map.getOutputSizes(ImageFormat.JPEG).firstOrNull { it.width <= 1600 }
@@ -634,9 +655,9 @@ class XiaozhiDevice(
     }
 
     /** Upload foto + pertanyaan ke vision URL, kembalikan jawaban JSON server */
-    private fun explainPhoto(question: String): String {
+    private fun explainPhoto(question: String, useBack: Boolean = false): String {
         val url = visionUrl ?: return "{\"success\":false,\"message\":\"vision url not set\"}"
-        val jpeg = captureJpeg() ?: return "{\"success\":false,\"message\":\"failed to capture photo\"}"
+        val jpeg = captureJpeg(useBack = useBack) ?: return "{\"success\":false,\"message\":\"failed to capture photo (camera not found)\"}"
         xzlog("foto siap ${jpeg.size} bytes, upload ke vision")
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
