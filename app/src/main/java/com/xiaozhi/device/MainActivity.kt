@@ -2,10 +2,12 @@ package com.xiaozhi.device
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.PowerManager
 import android.view.View
-import android.view.WindowManager // <-- Tambahan impor
+import android.view.WindowManager
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
@@ -26,6 +28,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
     private var talking = false
 
     private lateinit var webView: WebView
+    private var wakeLock: PowerManager.WakeLock? = null
     private val permCode = 77
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -33,6 +36,13 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         webView = findViewById(R.id.webView)
+
+        // Inisialisasi WakeLock untuk menjaga CPU/koneksi tetap hidup di latar belakang
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "Xiaozhi::BackgroundWakeLock"
+        )
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -78,11 +88,15 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         @JavascriptInterface
         fun connect() {
             runOnUiThread {
-                if (connected) return@runOnUiThread
                 if (!hasMicPermission()) {
                     ActivityCompat.requestPermissions(
                         this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA), permCode)
                 } else {
+                    device?.stop()
+                    connected = false
+                    talking = false
+                    releaseWakeLock()
+                    
                     device?.start()
                 }
             }
@@ -94,7 +108,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                 talking = false
                 connected = false
                 device?.stop()
-                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) // Bolehkan layar mati lagi
+                releaseWakeLock()
                 js("window.onDisconnected('Panggilan diakhiri')")
             }
         }
@@ -130,6 +144,9 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == permCode && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            device?.stop()
+            connected = false
+            talking = false
             device?.start()
         } else {
             Toast.makeText(this, "Izin mic wajib untuk panggilan", Toast.LENGTH_LONG).show()
@@ -140,6 +157,24 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
     private fun hasMicPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
+
+    private fun acquireWakeLock() {
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        wakeLock?.let {
+            if (!it.isHeld) {
+                it.acquire()
+            }
+        }
+    }
+
+    private fun releaseWakeLock() {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        wakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+        }
+    }
 
     private fun js(code: String) {
         runOnUiThread {
@@ -170,14 +205,14 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
 
     override fun onConnected() {
         connected = true
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) // Jaga layar tetap menyala saat terhubung
+        acquireWakeLock() // Ambil kunci agar tetap aktif walau buka Home
         js("window.onConnected()")
     }
 
     override fun onDisconnected(reason: String) {
         connected = false
         talking = false
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) // Bolehkan layar mati setelah putus
+        releaseWakeLock() // Lepas kunci saat putus
         js("window.onDisconnected(${JSONObject.quote(reason)})")
     }
 
@@ -206,7 +241,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
     }
 
     override fun onDestroy() {
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        releaseWakeLock()
         device?.stop()
         webView.destroy()
         super.onDestroy()
