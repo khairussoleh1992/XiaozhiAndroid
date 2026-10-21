@@ -225,12 +225,6 @@
 <script src="live2d/live2dcubismcore.min.js" onerror="bootFail('live2dcubismcore gagal dimuat')"></script>
 <script src="live2d/live2d-cubism4.min.js" onerror="bootFail('live2d-cubism4 gagal dimuat')"></script>
 <script>
-/* =================================================================
-   Xiaozhi Live Video Call - UI layer
-   Bridge: window.onXXX dipanggil dari Kotlin (evaluateJavascript)
-   Kontrol: AndroidBridge.XXX dipanggil dari sini ke Kotlin
-   ================================================================= */
-
 var STATE = {
   connected: false, listening: false, thinking: false,
   speaking: false, muted: false, camOn: true,
@@ -244,7 +238,6 @@ var cfg = {
   dy:   parseFloat(localStorage.getItem("xzh_dy2")   || "1.22")
 };
 
-/* ---------------- Live2D (Hiyori) ---------------- */
 var app = null, model = null, mouthTarget = 0, exprIdx = 0;
 
 function bootFail(msg) {
@@ -307,7 +300,6 @@ async function loadModel(url) {
     bootStatus("Karakter siap");
     document.body.classList.add("model-ready");
     try { model.motion("Idle"); } catch (e) {}
-    /* lip-sync: set parameter mulut SETELAH update internal model */
     app.ticker.add(function () {
       if (!model || !STATE.speaking) return;
       try {
@@ -333,7 +325,6 @@ function layoutModel() {
   model.position.set(w / 2, h * cfg.dy);
 }
 
-/* fokus mata/kepala mengikuti sentuhan & kursor */
 window.addEventListener("pointermove", function (e) {
   if (model && model.focus) { try { model.focus(e.clientX, e.clientY); } catch (e2) {} }
 }, { passive: true });
@@ -351,7 +342,6 @@ function triggerExpression() {
   } catch (e) { try { model.motion("Tap"); } catch (e2) {} }
 }
 
-/* ---------------- thinking particles ---------------- */
 var pCanvas = document.getElementById("particles"), pCtx = pCanvas.getContext("2d"), parts = [];
 function fitParticles() { pCanvas.width = innerWidth; pCanvas.height = innerHeight; }
 fitParticles(); window.addEventListener("resize", fitParticles);
@@ -377,7 +367,6 @@ fitParticles(); window.addEventListener("resize", fitParticles);
   }
 })();
 
-/* ---------------- waveform visualizer ---------------- */
 var wCanvas = document.getElementById("wave"), wCtx = wCanvas.getContext("2d"), wPhase = 0;
 function fitWave() { wCanvas.width = wCanvas.clientWidth * (window.devicePixelRatio || 1); wCanvas.height = wCanvas.clientHeight * (window.devicePixelRatio || 1); }
 fitWave(); window.addEventListener("resize", fitWave);
@@ -412,7 +401,6 @@ fitWave(); window.addEventListener("resize", fitWave);
   }
 })();
 
-/* ---------------- UI helpers ---------------- */
 function $(id) { return document.getElementById(id); }
 function setStatus(t, withIcon) {
   $("status-txt").textContent = t;
@@ -438,7 +426,6 @@ function refreshBadge() {
   else { d.className = "dot-live dot-off"; t.textContent = "Tidak terhubung"; }
 }
 
-/* dipanggil Kotlin */
 window.onStatus = function (t) { setStatus(t); };
 window.onConnected = function () {
   STATE.connected = true; STATE.thinking = false;
@@ -455,15 +442,29 @@ window.onDisconnected = function (reason) {
   refreshBadge();
 };
 window.onChat = function (role, text) { pushChat(role, text); };
+
+// --- DIUPDATE: Otomatis ganti ekspresi saat AI mulai berbicara ---
 window.onSpeaking = function (b) {
   STATE.speaking = b;
-  if (!b) { mouthTarget = 0; $("subtitle").style.display = "none"; setStatus("Siap! Langsung bicara saja"); }
-  else setStatus("Partner sedang berbicara...");
+  if (!b) { 
+    mouthTarget = 0; 
+    $("subtitle").style.display = "none"; 
+    setStatus("Siap! Langsung bicara saja"); 
+  } else { 
+    setStatus("Partner sedang berbicara...");
+    triggerExpression(); 
+  }
 };
+
+// --- DIUPDATE: Otomatis ganti ekspresi saat AI sedang berpikir ---
 window.onThinking = function (b) {
   STATE.thinking = b;
-  if (b) setStatus("Sedang berpikir...");
+  if (b) { 
+    setStatus("Sedang berpikir..."); 
+    triggerExpression();
+  }
 };
+
 window.onMicLevel = function (v) { STATE.micLevel = v; };
 window.onTtsLevel = function (v) { STATE.ttsLevel = v; mouthTarget = Math.min(1, v * 2.6); };
 window.onActivation = function (code, msg) {
@@ -482,15 +483,11 @@ window.onXzLog = function (line) {
   var el = document.getElementById("xzlog");
   if (el) el.textContent = window._xzLogs.join("\n");
 };
-
 window.onDeviceInfo = function (info) {
   $("gate-device").textContent = info;
   $("set-device").textContent = info;
 };
 
-/* ---------------- controls ---------------- */
-/* Mode otomatis: mic selalu hidup setelah connect, tanpa tombol.
-   Tombol tengah kini hanya mute/unmute mic. */
 var talkBtn = $("btn-talk");
 talkBtn.addEventListener("click", function () {
   if (!STATE.connected) return;
@@ -513,6 +510,7 @@ $("btn-mute").addEventListener("click", function () {
   this.innerHTML = STATE.muted ? "&#128263;" : "&#127908;";
   setStatus(STATE.muted ? "Mic dibisukan" : "Mic aktif");
 });
+
 var camStream = null;
 function camOff() {
   if (camStream) { camStream.getTracks().forEach(function (t) { t.stop(); }); camStream = null; }
@@ -520,6 +518,7 @@ function camOff() {
   if (v) v.srcObject = null;
   document.getElementById("selfcam").style.display = "none";
 }
+
 $("btn-cam").addEventListener("click", function () {
   STATE.camOn = !STATE.camOn;
   this.classList.toggle("off", !STATE.camOn);
@@ -551,6 +550,7 @@ $("btn-cam").addEventListener("click", function () {
     setStatus("Kamera dimatikan");
   }
 });
+
 $("btn-expr").addEventListener("click", triggerExpression);
 
 $("btn-start-call").addEventListener("click", function () {
@@ -576,7 +576,6 @@ document.querySelectorAll(".drawer").forEach(function (d) {
   d.addEventListener("click", function (e) { if (e.target === d) closeDrawers(); });
 });
 
-/* settings actions */
 $("btn-apply-model").addEventListener("click", function () {
   var u = $("inp-model").value.trim();
   if (!u) return;
@@ -593,7 +592,6 @@ $("inp-dy").addEventListener("input", function () {
   localStorage.setItem("xzh_dy2", cfg.dy); layoutModel();
 });
 
-/* mulai */
 bootLive2D();
 $("gate-device").textContent = "Device: -";
 </script>
