@@ -5,7 +5,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.pm.ResolveInfo
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -86,7 +85,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         pushDeviceInfo()
     }
 
-       inner class Bridge {
+    inner class Bridge {
         @JavascriptInterface
         fun connect() {
             runOnUiThread {
@@ -139,14 +138,8 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             }
         }
 
+        // Fungsi pintar buka aplikasi via screen reading & accessibility
         @JavascriptInterface
-        fun openApp(keyword: String) {
-            runOnUiThread {
-                openAppByKeyword(keyword)
-            }
-        }
-
-                @JavascriptInterface
         fun openApp(appName: String) {
             runOnUiThread {
                 val service = XiaozhiAccessibilityService.inst
@@ -159,12 +152,10 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                         }
                     }
                 } else {
-                    js("window.onChat('assistant', 'Layanan Aksesibilitas belum aktif.')")
+                    js("window.onChat('assistant', 'Layanan Aksesibilitas belum aktif di pengaturan HP.')")
                 }
             }
         }
-
-        // --- TAMBAHAN BRIDGE UNTUK AKSESIBILITAS ---
 
         @JavascriptInterface
         fun clickScreen(x: Float, y: Float) {
@@ -177,7 +168,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                         }
                     }
                 } else {
-                    js("window.onChat('assistant', 'Layanan Aksesibilitas belum aktif di pengaturan HP.')")
+                    js("window.onChat('assistant', 'Layanan Aksesibilitas belum aktif.')")
                 }
             }
         }
@@ -192,16 +183,14 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         @JavascriptInterface
         fun goHome() {
             runOnUiThread {
-                // GLOBAL_ACTION_HOME bernilai 4
-                XiaozhiAccessibilityService.inst?.globalAction(4)
+                XiaozhiAccessibilityService.inst?.globalAction(4) // GLOBAL_ACTION_HOME
             }
         }
 
         @JavascriptInterface
         fun goBack() {
             runOnUiThread {
-                // GLOBAL_ACTION_BACK bernilai 1
-                XiaozhiAccessibilityService.inst?.globalAction(1)
+                XiaozhiAccessibilityService.inst?.globalAction(1) // GLOBAL_ACTION_BACK
             }
         }
 
@@ -211,43 +200,11 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                 val service = XiaozhiAccessibilityService.inst
                 if (service != null) {
                     val screenText = service.dumpScreenText()
-                    // Mengirim teks layar kembali ke AI/JS
                     js("window.onScreenText(${JSONObject.quote(screenText)})")
                 } else {
                     js("window.onChat('assistant', 'Layanan Aksesibilitas tidak aktif.')")
                 }
             }
-        }
-    }
-
-    private fun openAppByKeyword(keyword: String) {
-        val pm = packageManager
-        val intent = Intent(Intent.ACTION_MAIN, null).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-        val allApps = pm.queryIntentActivities(intent, 0)
-        val keywordLower = keyword.lowercase()
-        val matchedApps = mutableListOf<ResolveInfo>()
-
-        for (app in allApps) {
-            val appName = app.loadLabel(pm).toString().lowercase()
-            if (appName.contains(keywordLower)) {
-                matchedApps.add(app)
-            }
-        }
-
-        if (matchedApps.size == 1) {
-            val packageName = matchedApps[0].activityInfo.packageName
-            val launchIntent = pm.getLaunchIntentForPackage(packageName)
-            if (launchIntent != null) {
-                startActivity(launchIntent)
-                js("window.onChat('assistant', 'Membuka ${matchedApps[0].loadLabel(pm)}')")
-            }
-        } else if (matchedApps.size > 1) {
-            val listNames = matchedApps.joinToString(", ") { it.loadLabel(pm).toString() }
-            js("window.onChat('assistant', 'Ditemukan beberapa pilihan: $listNames. Mau buka yang mana?')")
-        } else {
-            js("window.onChat('assistant', 'Aplikasi dengan nama $keyword tidak ditemukan.')")
         }
     }
 
@@ -352,7 +309,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
 
     override fun onResume() {
         super.onResume()
-        webView.onResume() // Melanjutkan animasi & render WebGL Live2D
+        webView.onResume()
     }
 
     override fun onPause() {
