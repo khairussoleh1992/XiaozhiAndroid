@@ -404,7 +404,13 @@ class XiaozhiDevice(
 
     private fun handleMcp(payload: JSONObject?, w: WebSocket?) {
         if (payload == null || w == null) return
-        val id = if (payload.has("id")) payload.opt("id") else null
+        val rawId = if (payload.has("id")) payload.opt("id") else null
+        // pertahankan tipe asli id (angka tetap angka) agar cocok di server
+        val id: Any? = when (rawId) {
+            is Number -> if (rawId.toDouble() == rawId.toLong().toDouble()) rawId.toLong() else rawId
+            else -> rawId
+        }
+        xzlog("MCP method=${payload.optString("method")} id=$id type=${id?.javaClass?.simpleName}")
         // id bisa berupa angka besar (mis. 130); kirim apa adanya agar cocok
         fun rootSessionId(payload: JSONObject?, fallback: String?): String? {
             val s = payload?.optString("session_id") ?: return fallback
@@ -413,7 +419,8 @@ class XiaozhiDevice(
         fun reply(resultObj: JSONObject) {
             if (id == null) return
             val sid = rootSessionId(payload, sessionId)
-            xzlog("MCP reply id=$id session=${sid ?: "-"}")
+            xzlog("MCP reply id=$id session=${sid ?: "-"} len=${resultObj.toString().length}")
+            xzlog("MCP out: " + resultObj.toString().take(180))
             sendJson(w, JSONObject().apply {
                 if (sid != null) put("session_id", sid)
                 put("type", "mcp")
@@ -465,8 +472,32 @@ class XiaozhiDevice(
                     })
                     put("required", org.json.JSONArray().put("question"))
                 }
+                // tool standar firmware (get_device_status, set_volume) disertakan
+                // agar daftar tool terlihat seperti perangkat xiaozhi asli
+                val emptySchema = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject())
+                }
+                val volSchema = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().put("volume", JSONObject().apply {
+                        put("type", "integer"); put("minimum", 0); put("maximum", 100)
+                    }))
+                    put("required", org.json.JSONArray().put("volume"))
+                }
+                val toolsArr = org.json.JSONArray()
+                toolsArr.put(JSONObject().apply {
+                    put("name", "self.get_device_status")
+                    put("description", "Provides the real-time information of the device.")
+                    put("inputSchema", emptySchema)
+                })
+                toolsArr.put(JSONObject().apply {
+                    put("name", "self.audio_speaker.set_volume")
+                    put("description", "Set the volume of the audio speaker (0-100).")
+                    put("inputSchema", volSchema)
+                })
                 reply(JSONObject().apply {
-                    put("tools", org.json.JSONArray().put(JSONObject().apply {
+                    put("tools", toolsArr.put(JSONObject().apply {
                         put("name", "self.camera.take_photo")
                         put("description",
                             "Always remember you have a camera. If the user asks you to see something, " +
@@ -475,13 +506,32 @@ class XiaozhiDevice(
                             "Return: A JSON object that provides the photo information.")
                         put("inputSchema", schema)
                     }))
-                    put("nextCursor", "")
+                    // JANGAN kirim nextCursor kosong: server mengira masih ada
+                    // halaman berikutnya lalu mengulang tools/list tanpa henti
                 })
+                xzlog("MCP tools/list dijawab: 1 tool, tanpa nextCursor")
             }
             "tools/call" -> {
                 val name = payload.optJSONObject("params")?.optString("name") ?: ""
                 val question = payload.optJSONObject("params")
                     ?.optJSONObject("arguments")?.optString("question") ?: ""
+                if (name == "self.get_device_status") {
+                    reply(JSONObject().apply {
+                        put("content", org.json.JSONArray().put(JSONObject()
+                            .put("type", "text").put("text",
+                                "{\"audio_speaker\":{\"volume\":70},\"screen\":{},\"network\":{\"type\":\"wifi\"}}")))
+                        put("isError", false)
+                    })
+                    return
+                }
+                if (name == "self.audio_speaker.set_volume") {
+                    reply(JSONObject().apply {
+                        put("content", org.json.JSONArray().put(JSONObject()
+                            .put("type", "text").put("text", "true")))
+                        put("isError", false)
+                    })
+                    return
+                }
                 if (name != "self.camera.take_photo") {
                     replyError("Unknown tool: $name"); return
                 }
