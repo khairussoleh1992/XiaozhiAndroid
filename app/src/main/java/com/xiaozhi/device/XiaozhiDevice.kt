@@ -25,7 +25,6 @@ import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.media.ImageReader
-import android.os.Handler
 import android.os.HandlerThread
 import okhttp3.MultipartBody
 import java.util.concurrent.CountDownLatch
@@ -34,7 +33,6 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.InetAddress
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 /**
  * Inti aplikasi: meniru firmware xiaozhi-esp32.
@@ -552,8 +550,8 @@ class XiaozhiDevice(
 
     /** Upload foto + pertanyaan ke vision URL, kembalikan jawaban JSON server */
     private fun explainPhoto(question: String): String {
-        val url = visionUrl ?: return "{"success":false,"message":"vision url not set"}"
-        val jpeg = captureJpeg() ?: return "{"success":false,"message":"failed to capture photo"}"
+        val url = visionUrl ?: return "{\"success\":false,\"message\":\"vision url not set\"}"
+        val jpeg = captureJpeg() ?: return "{\"success\":false,\"message\":\"failed to capture photo\"}"
         xzlog("foto siap ${jpeg.size} bytes, upload ke vision")
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
