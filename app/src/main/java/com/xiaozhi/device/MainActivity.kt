@@ -45,16 +45,16 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             mediaPlaybackRequiresUserGesture = false
             loadWithOverviewMode = true
             useWideViewPort = true
-            @SuppressWarnings("DEPRECATION")
+            @Suppress("DEPRECATION")
             allowFileAccessFromFileURLs = true
-            @SuppressWarnings("DEPRECATION")
+            @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = true
         }
         webView.setBackgroundColor(0xFF0D1117.toInt())
         webView.webViewClient = WebViewClient()
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(cm: ConsoleMessage): Boolean {
-                Log.d("XZWeb", "[${cm.messageLineNumber()}] ${cm.message()}")
+                Log.d("XZWeb", "[${cm.lineNumber()}] ${cm.message()}")
                 return true
             }
         }
