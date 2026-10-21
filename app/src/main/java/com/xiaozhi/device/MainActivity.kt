@@ -51,7 +51,11 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             allowUniversalAccessFromFileURLs = true
         }
         webView.setBackgroundColor(0xFF0D1117.toInt())
-        webView.webViewClient = WebViewClient()
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String) {
+                pushDeviceInfo()
+            }
+        }
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(cm: ConsoleMessage): Boolean {
                 Log.d("XZWeb", "[${cm.lineNumber()}] ${cm.message()}")
@@ -166,6 +170,10 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         connected = false
         talking = false
         js("window.onDisconnected(${JSONObject.quote(reason)})")
+    }
+
+    override fun onDebugLog(line: String) {
+        js("window.onXzLog(${JSONObject.quote(line)})")
     }
 
     override fun onChat(role: String, text: String) {

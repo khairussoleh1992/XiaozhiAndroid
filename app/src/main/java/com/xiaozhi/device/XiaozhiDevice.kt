@@ -58,6 +58,13 @@ class XiaozhiDevice(
         fun onThinking(active: Boolean) {}
         fun onMicLevel(level: Float) {}
         fun onTtsLevel(level: Float) {}
+        fun onDebugLog(line: String) {}
+    }
+
+    /** Log terlihat di layar (drawer LOG) supaya HP bisa cerita sendiri */
+    fun xzlog(s: String) {
+        Log.d("XiaozhiDevice", "[LOG] $s")
+        ui.post { listener.onDebugLog(s) }
     }
 
     private val appContext = context.applicationContext
@@ -171,6 +178,12 @@ class XiaozhiDevice(
                 uiStatus("Cek server (OTA)...")
                 val ota = otaCheck()
                 Log.i("XiaozhiDevice", "OTA resp: $ota")
+                val wsJ = ota.optJSONObject("websocket")
+                val tkn = wsJ?.optString("token") ?: ""
+                xzlog("OTA ok. ws_url=" + (wsJ?.optString("url") ?: "-")
+                    + " proto=" + (wsJ?.optInt("version", 1) ?: 1)
+                    + " token=" + (if (tkn.length > 10) tkn.take(10) + "..(len " + tkn.length + ")" else tkn)
+                    + " activation=" + (if (ota.optJSONObject("activation")?.has("code") == true) "ADA" else "tidak"))
                 val wsCfg = ota.optJSONObject("websocket")
                 val wsUrl = wsCfg?.optString("url")?.takeIf { it.isNotEmpty() }
                     ?: "wss://api.tenclass.net/xiaozhi/v1/"
@@ -192,10 +205,12 @@ class XiaozhiDevice(
 
                 if (!running || g != generation) return
                 uiStatus("Menghubungkan websocket...")
+                xzlog("connectWs: " + wsUrl + " token=" + token.take(14) + "..")
                 connectWs(wsUrl, token, protoVer, g)
                 return   // connectWs menangani selanjutnya lewat listener
             } catch (e: Exception) {
                 Log.e("XiaozhiDevice", "loop error", e)
+                xzlog("loop error: " + (e.message ?: "unknown"))
                 uiStatus("Error: ${e.message ?: "unknown"}")
                 if (!running || g != generation) break
                 try { Thread.sleep(5000) } catch (_: InterruptedException) { break }
@@ -249,8 +264,8 @@ class XiaozhiDevice(
                     .build()
                 http.newCall(req).execute().use { resp ->
                     when (resp.code) {
-                        200 -> { uiStatus("Perangkat aktif!"); return }
-                        202 -> uiStatus("Menunggu kode dimasukkan di console...")
+                        200 -> { xzlog("aktivasi OK (perangkat aktif)"); uiStatus("Perangkat aktif!"); return }
+                        202 -> { if (tries % 4 == 1) xzlog("aktivasi menunggu kode (HTTP 202)"); uiStatus("Menunggu kode dimasukkan di console...") }
                         else -> Log.w("XiaozhiDevice", "activate HTTP ${resp.code}")
                     }
                 }
@@ -297,11 +312,14 @@ class XiaozhiDevice(
                         .put("frame_duration", AudioEngine.FRAME_MS))
                 }
                 webSocket.send(hello.toString())
+                xzlog("hello dikirim (proto " + protoVer + "), tunggu balasan server")
                 uiStatus("Terhubung, menunggu hello server...")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 Log.d("XiaozhiDevice", "WS in: $text")
+                if (text.length < 200) xzlog("WS in: " + text)
+                else xzlog("WS in: " + text.substring(0, 200) + "..")
                 handleText(text)
             }
 
@@ -312,6 +330,7 @@ class XiaozhiDevice(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e("XiaozhiDevice", "WS fail: ${t.message} resp=${response?.code}")
+                xzlog("WS GAGAL: ${t.message} resp=${response?.code}")
                 audio?.stopAll()
                 ui.post { listener.onDisconnected(t.message ?: "connection failed") }
                 scheduleReconnect(g)
@@ -319,6 +338,7 @@ class XiaozhiDevice(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i("XiaozhiDevice", "WS closed: $code $reason")
+                xzlog("WS closed: $code $reason")
                 audio?.stopAll()
                 ui.post { listener.onDisconnected("closed: $reason") }
                 scheduleReconnect(g)
