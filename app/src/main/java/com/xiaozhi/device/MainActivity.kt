@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.view.View
@@ -39,7 +40,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         setContentView(R.layout.activity_main)
         webView = findViewById(R.id.webView)
 
-        // Inisialisasi WakeLock untuk menjaga CPU/koneksi tetap hidup di latar belakang
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -97,7 +97,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                     device?.stop()
                     connected = false
                     talking = false
-                    releaseWakeLock()
+                    stopCallService()
                     
                     device?.start()
                 }
@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                 talking = false
                 connected = false
                 device?.stop()
-                releaseWakeLock()
+                stopCallService()
                 js("window.onDisconnected('Panggilan diakhiri')")
             }
         }
@@ -140,7 +140,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             }
         }
 
-        // Fungsi yang bisa dipanggil oleh AI/JS untuk membuka aplikasi berdasarkan kata kunci
         @JavascriptInterface
         fun openApp(keyword: String) {
             runOnUiThread {
@@ -174,11 +173,28 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             }
         } else if (matchedApps.size > 1) {
             val listNames = matchedApps.joinToString(", ") { it.loadLabel(pm).toString() }
-            // Kirim ke chat supaya AI bisa membacakan pilihan aplikasi ke pengguna
             js("window.onChat('assistant', 'Ditemukan beberapa pilihan: $listNames. Mau buka yang mana?')")
         } else {
             js("window.onChat('assistant', 'Aplikasi dengan nama $keyword tidak ditemukan.')")
         }
+    }
+
+    private fun startCallService() {
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        wakeLock?.let { if (!it.isHeld) it.acquire() }
+
+        val serviceIntent = Intent(this, CallForegroundService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    }
+
+    private fun stopCallService() {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        wakeLock?.let { if (it.isHeld) it.release() }
+        stopService(Intent(this, CallForegroundService::class.java))
     }
 
     override fun onRequestPermissionsResult(
@@ -200,24 +216,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
 
-    private fun acquireWakeLock() {
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        wakeLock?.let {
-            if (!it.isHeld) {
-                it.acquire()
-            }
-        }
-    }
-
-    private fun releaseWakeLock() {
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        wakeLock?.let {
-            if (it.isHeld) {
-                it.release()
-            }
-        }
-    }
-
     private fun js(code: String) {
         runOnUiThread {
             if (webView.visibility == View.VISIBLE) {
@@ -230,8 +228,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         val info = device?.deviceInfo() ?: ""
         js("window.onDeviceInfo(${JSONObject.quote(info)})")
     }
-
-    // ---------------- callback dari XiaozhiDevice -> WebView ----------------
 
     override fun onStatus(text: String) {
         js("window.onStatus(${JSONObject.quote(text)})")
@@ -247,14 +243,14 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
 
     override fun onConnected() {
         connected = true
-        acquireWakeLock()
+        startCallService()
         js("window.onConnected()")
     }
 
     override fun onDisconnected(reason: String) {
         connected = false
         talking = false
-        releaseWakeLock()
+        stopCallService()
         js("window.onDisconnected(${JSONObject.quote(reason)})")
     }
 
@@ -282,8 +278,18 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         js("window.onTtsLevel($level)")
     }
 
+    override fun onResume() {
+        super.onResume()
+        webView.onResume() // Melanjutkan animasi & render WebGL Live2D
+    }
+
+    override fun onPause() {
+        webView.onPause()
+        super.onPause()
+    }
+
     override fun onDestroy() {
-        releaseWakeLock()
+        stopCallService()
         device?.stop()
         webView.destroy()
         super.onDestroy()
