@@ -55,7 +55,55 @@ class XiaozhiAccessibilityService : AccessibilityService() {
             override fun onCancelled(gesture: GestureDescription?) { done(false) }
         }, null)
     }
+    // Fungsi pintar: Ke Home -> Baca Layar -> Cari Nama Aplikasi -> Klik Otomatis
+    fun openAppByNameOnScreen(targetName: String, done: (Boolean) -> Unit) {
+        // 1. Pergi ke halaman utama dulu
+        performGlobalAction(GLOBAL_ACTION_HOME)
 
+        // 2. Beri jeda 800ms agar halaman utama terbuka sempurna
+        android.os.Handler(mainLooper).postDelayed({
+            val root = rootInActiveWindow
+            if (root == null) {
+                done(false)
+                return@postDelayed
+            }
+
+            // Cari node/ikon aplikasi yang cocok dengan nama yang diminta
+            val targetNode = findNodeByText(root, targetName)
+            if (targetNode != null) {
+                // Coba klik langsung node-nya
+                if (targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    done(true)
+                } else {
+                    // Jika gagal klik node, klik berdasarkan koordinat tengah ikon tersebut
+                    val rect = Rect()
+                    targetNode.getBoundsInScreen(rect)
+                    tapXY(rect.centerX().toFloat(), rect.centerY().toFloat(), done)
+                }
+            } else {
+                done(false)
+            }
+        }, 800)
+    }
+
+    // Helper untuk rekursif mencari teks/deskripsi aplikasi di layar
+    private fun findNodeByText(node: AccessibilityNodeInfo, target: String): AccessibilityNodeInfo? {
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+        val targetLower = target.lowercase()
+
+        if (text.contains(targetLower) || desc.contains(targetLower)) {
+            return node
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findNodeByText(child, target)
+            if (result != null) return result
+        }
+        return null
+    }
+    
     fun globalAction(action: Int): Boolean = performGlobalAction(action)
 
     fun dumpScreenText(maxLen: Int = 3000): String {
