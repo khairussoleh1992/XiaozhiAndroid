@@ -77,7 +77,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                 if (connected) return@runOnUiThread
                 if (!hasMicPermission()) {
                     ActivityCompat.requestPermissions(
-                        this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), permCode)
+                        this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA), permCode)
                 } else {
                     // start() kini selalu memulai ulang loop koneksi (generation),
                     // jadi tombol bisa dipencet berulang kali.
@@ -94,6 +94,11 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                 device?.stop()
                 js("window.onDisconnected('Panggilan diakhiri')")
             }
+        }
+
+        @JavascriptInterface
+        fun micToggle() {
+            runOnUiThread { device?.micToggle() }
         }
 
         @JavascriptInterface

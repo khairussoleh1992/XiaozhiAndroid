@@ -16,6 +16,20 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.dnsoverhttps.DnsOverHttps
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.media.ImageReader
+import android.os.Handler
+import android.os.HandlerThread
+import okhttp3.MultipartBody
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 import java.io.IOException
 import java.net.InetAddress
@@ -104,6 +118,18 @@ class XiaozhiDevice(
     @Volatile private var sessionId: String? = null
     @Volatile private var speaking = false
     @Volatile private var thinking = false
+
+    // Mode bicara otomatis: mic selalu aktif setelah connect,
+    // server yang mendetarkan suara kita (VAD). Tidak perlu tombol.
+    private val autoMode = true
+    @Volatile private var micMuted = false
+
+    // ---- vision / kamera (MCP) ----
+    @Volatile private var visionUrl: String? = null
+    @Volatile private var visionToken = ""
+    private val camExec = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "xiaozhi-cam").apply { isDaemon = true }
+    }
     private var ws: WebSocket? = null
     private var audio: AudioEngine? = null
 
@@ -126,6 +152,14 @@ class XiaozhiDevice(
         try { ws?.close(1000, "bye") } catch (_: Exception) { }
         ws = null
         uiStatus("Disconnected")
+    }
+
+    /** Tombol mic: dalam mode otomatis jadi tombol mute on/off */
+    fun micToggle() {
+        if (sessionId == null) return
+        micMuted = !micMuted
+        uiStatus(if (micMuted) "Mic dimatikan" else "Mic aktif - bicara saja")
+        xzlog(if (micMuted) "mic OFF" else "mic ON")
     }
 
     /** Tombol mic ditekan: mulai bicara */
@@ -289,8 +323,12 @@ class XiaozhiDevice(
 
         val eng = AudioEngine(
             onMicFrame = { frame ->
-                // frame opus mentah dari mic -> server
-                try { ws?.send(frame.toByteString()) } catch (_: Exception) { }
+                // frame opus mentah dari mic -> server.
+                // Saat AI bicara (speaking) atau mic di-mute, frame dibuang
+                // supaya suara AI tidak ikut masuk lagi (echo/loop).
+                if (!speaking && !micMuted) {
+                    try { ws?.send(frame.toByteString()) } catch (_: Exception) { }
+                }
             },
             onMicLevel = { lvl -> ui.post { listener.onMicLevel(lvl) } },
             onTtsLevel = { lvl -> ui.post { listener.onTtsLevel(lvl) } }
@@ -303,7 +341,8 @@ class XiaozhiDevice(
                 val hello = JSONObject().apply {
                     put("type", "hello")
                     put("version", protoVer)
-                    put("features", JSONObject())
+                    // iklankan MCP supaya server kirim initialize + vision URL
+                    put("features", JSONObject().put("mcp", true))
                     put("transport", "websocket")
                     put("audio_params", JSONObject()
                         .put("format", "opus")
@@ -346,6 +385,194 @@ class XiaozhiDevice(
         })
     }
 
+    private val webSocketRef: WebSocket?
+        get() = ws
+
+    private fun handleMcp(payload: JSONObject?, w: WebSocket?) {
+        if (payload == null || w == null) return
+        val id = if (payload.has("id")) payload.opt("id") else null
+        fun reply(resultObj: JSONObject) {
+            if (id == null) return
+            sendJson(w, JSONObject().apply {
+                put("session_id", sessionId ?: JSONObject.NULL)
+                put("type", "mcp")
+                put("payload", JSONObject().apply {
+                    put("jsonrpc", "2.0")
+                    put("id", id)
+                    put("result", resultObj)
+                })
+            })
+        }
+        fun replyError(msg: String) {
+            if (id == null) return
+            sendJson(w, JSONObject().apply {
+                put("session_id", sessionId ?: JSONObject.NULL)
+                put("type", "mcp")
+                put("payload", JSONObject().apply {
+                    put("jsonrpc", "2.0")
+                    put("id", id)
+                    put("error", JSONObject().put("code", -32603).put("message", msg))
+                })
+            })
+        }
+        when (payload.optString("method")) {
+            "initialize" -> {
+                val vision = payload.optJSONObject("params")
+                    ?.optJSONObject("capabilities")?.optJSONObject("vision")
+                if (vision != null) {
+                    visionUrl = vision.optString("url")
+                    visionToken = vision.optString("token")
+                    xzlog("MCP init: vision url diterima")
+                } else {
+                    xzlog("MCP init: tanpa vision")
+                }
+                reply(JSONObject().apply {
+                    put("protocolVersion", "2024-11-05")
+                    put("capabilities", JSONObject().put("tools", JSONObject()))
+                    put("serverInfo", JSONObject().put("name", "xiaozhi-android").put("version", "1.0.0"))
+                })
+            }
+            "tools/list" -> {
+                val schema = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("question", JSONObject().apply {
+                            put("type", "string")
+                            put("description", "The question that you want to ask about the photo.")
+                        })
+                    })
+                    put("required", org.json.JSONArray().put("question"))
+                }
+                reply(JSONObject().apply {
+                    put("tools", org.json.JSONArray().put(JSONObject().apply {
+                        put("name", "self.camera.take_photo")
+                        put("description",
+                            "Always remember you have a camera. If the user asks you to see something, " +
+                            "use this tool to take a photo and then explain it. " +
+                            "Args: `question`: The question that you want to ask about the photo. " +
+                            "Return: A JSON object that provides the photo information.")
+                        put("inputSchema", schema)
+                    }))
+                    put("nextCursor", "")
+                })
+            }
+            "tools/call" -> {
+                val name = payload.optJSONObject("params")?.optString("name") ?: ""
+                val question = payload.optJSONObject("params")
+                    ?.optJSONObject("arguments")?.optString("question") ?: ""
+                if (name != "self.camera.take_photo") {
+                    replyError("Unknown tool: $name"); return
+                }
+                xzlog("AI minta foto: $question")
+                uiStatus("Mengambil foto untuk AI...")
+                camExec.execute {
+                    val answer = try { explainPhoto(question) }
+                        catch (e: Exception) { "camera error: ${e.message}" }
+                    reply(JSONObject().apply {
+                        put("content", org.json.JSONArray().put(JSONObject()
+                            .put("type", "text").put("text", answer)))
+                        put("isError", false)
+                    })
+                    uiStatus("Mic aktif - bicara saja")
+                }
+            }
+            else -> if (id != null) replyError("Method not found: ${payload.optString("method")}")
+        }
+    }
+
+    /** Ambil 1 foto JPEG (kamera belakang) maksimal ~800px sisi terpanjang */
+    private fun captureJpeg(maxSide: Int = 800): ByteArray? {
+        val cm = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val backId = cm.cameraIdList.firstOrNull {
+            cm.getCameraCharacteristics(it)
+                .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+        } ?: cm.cameraIdList.firstOrNull() ?: return null
+        val chars = cm.getCameraCharacteristics(backId)
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+        val size = map.getOutputSizes(ImageFormat.JPEG).firstOrNull { it.width <= 1600 }
+            ?: map.getOutputSizes(ImageFormat.JPEG).first()
+
+        val ht = HandlerThread("xz-shot").also { it.start() }
+        val h = Handler(ht.looper)
+        val reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
+        var jpeg: ByteArray? = null
+        var err: String? = null
+        val latch = CountDownLatch(1)
+        cm.openCamera(backId, object : CameraDevice.StateCallback() {
+            override fun onOpened(cam: CameraDevice) {
+                try {
+                    val outputs = java.util.Collections.singletonList(reader.surface)
+                    cam.createCaptureSession(outputs, object : CameraCaptureSession.StateCallback() {
+                        override fun onConfigured(sess: CameraCaptureSession) {
+                            try {
+                                val reqB = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                    addTarget(reader.surface)
+                                    set(CaptureRequest.JPEG_ORIENTATION, 90)
+                                }
+                                reader.setOnImageAvailableListener({ r ->
+                                    val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                                    val bb = img.planes[0].buffer
+                                    val b = ByteArray(bb.remaining()); bb.get(b)
+                                    img.close(); jpeg = b
+                                    try { cam.close() } catch (_: Exception) { }
+                                    latch.countDown()
+                                }, h)
+                                sess.capture(reqB.build(), null, h)
+                            } catch (e: Exception) { err = e.message; try { cam.close() } catch (_: Exception) { }; latch.countDown() }
+                        }
+                        override fun onConfigureFailed(sess: CameraCaptureSession) {
+                            err = "configure failed"
+                            try { cam.close() } catch (_: Exception) { }
+                            latch.countDown()
+                        }
+                    }, h)
+                } catch (e: Exception) { err = e.message; latch.countDown() }
+            }
+            override fun onDisconnected(cam: CameraDevice) { err = "disconnected"; latch.countDown() }
+            override fun onError(cam: CameraDevice, code: Int) { err = "camera error $code"; latch.countDown() }
+        }, h)
+        latch.await(10, TimeUnit.SECONDS)
+        ht.quitSafely()
+        reader.close()
+        if (jpeg == null) { xzlog("capture gagal: ${err ?: "?"}"); return null }
+        // perkecil supaya upload ringan
+        return try {
+            val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg!!.size)
+            var w2 = bmp.width; var h2 = bmp.height
+            if (maxOf(w2, h2) > maxSide) {
+                val sc = maxSide.toFloat() / maxOf(w2, h2)
+                w2 = (w2 * sc).toInt().coerceAtLeast(1); h2 = (h2 * sc).toInt().coerceAtLeast(1)
+            }
+            val small = Bitmap.createScaledBitmap(bmp, w2, h2, true)
+            val out = java.io.ByteArrayOutputStream()
+            small.compress(Bitmap.CompressFormat.JPEG, 70, out)
+            out.toByteArray()
+        } catch (_: Exception) { jpeg }
+    }
+
+    /** Upload foto + pertanyaan ke vision URL, kembalikan jawaban JSON server */
+    private fun explainPhoto(question: String): String {
+        val url = visionUrl ?: return "{"success":false,"message":"vision url not set"}"
+        val jpeg = captureJpeg() ?: return "{"success":false,"message":"failed to capture photo"}"
+        xzlog("foto siap ${jpeg.size} bytes, upload ke vision")
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("question", question)
+            .addFormDataPart("file", "camera.jpg",
+                okhttp3.RequestBody.create("image/jpeg".toMediaType(), jpeg))
+            .build()
+        val reqB = Request.Builder().url(url)
+            .header("Device-Id", mac)
+            .header("Client-Id", uuid)
+        if (visionToken.isNotEmpty()) reqB.header("Authorization", "Bearer " + visionToken)
+        val req = reqB.post(body).build()
+        http.newCall(req).execute().use { resp ->
+            val txt = resp.body?.string() ?: ""
+            xzlog("vision resp ${resp.code}: ${txt.take(120)}")
+            return txt
+        }
+    }
+
     private fun handleText(text: String) {
         try {
             val root = JSONObject(text)
@@ -358,7 +585,22 @@ class XiaozhiDevice(
                     }
                     ui.post {
                         listener.onConnected()
-                        listener.onStatus("Siap! Tahan tombol tengah untuk bicara")
+                        if (autoMode) {
+                            // percakapan berkelanjutan: mic selalu mengirim,
+                            // server yang mendeteksi suara kita (mode "auto")
+                            val sock = ws
+                            if (sock != null) sendJson(sock, JSONObject().apply {
+                                put("session_id", sessionId)
+                                put("type", "listen")
+                                put("state", "start")
+                                put("mode", "auto")
+                            })
+                            audio?.startMic()
+                            xzlog("auto-listen aktif: mic streaming, mode auto")
+                            listener.onStatus("Siap! Langsung bicara saja")
+                        } else {
+                            listener.onStatus("Siap! Tahan tombol tengah untuk bicara")
+                        }
                     }
                 }
                 "tts" -> when (root.optString("state")) {
@@ -385,7 +627,7 @@ class XiaozhiDevice(
                 }
                 "llm" -> { /* emosi AI, diabaikan */ }
                 "system" -> { /* perintah sistem (reboot dll), diabaikan */ }
-                "mcp" -> { /* MCP belum diimplementasi di versi ini */ }
+                "mcp" -> handleMcp(root.optJSONObject("payload"), webSocketRef)
             }
         } catch (e: Exception) {
             Log.w("XiaozhiDevice", "parse: $text", e)
