@@ -8,6 +8,7 @@ import android.view.View
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -60,6 +61,17 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             override fun onConsoleMessage(cm: ConsoleMessage): Boolean {
                 Log.d("XZWeb", "[${cm.lineNumber()}] ${cm.message()}")
                 return true
+            }
+
+            // Izinkan getUserMedia (kamera) dari WebView bila izin runtime sudah ada
+            override fun onPermissionRequest(req: PermissionRequest) {
+                runOnUiThread {
+                    val wantsVideo = req.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                    val granted = ContextCompat.checkSelfPermission(
+                        this@MainActivity, Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (wantsVideo && granted) req.grant(req.resources) else req.deny()
+                }
             }
         }
         webView.addJavascriptInterface(Bridge(), "AndroidBridge")

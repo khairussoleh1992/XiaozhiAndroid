@@ -158,6 +158,7 @@ class XiaozhiDevice(
         micMuted = !micMuted
         uiStatus(if (micMuted) "Mic dimatikan" else "Mic aktif - bicara saja")
         xzlog(if (micMuted) "mic OFF" else "mic ON")
+        if (!micMuted && !speaking) reopenListen()
     }
 
     /** Tombol mic ditekan: mulai bicara */
@@ -386,6 +387,21 @@ class XiaozhiDevice(
     private val webSocketRef: WebSocket?
         get() = ws
 
+    /** Buka kembali sesi listen mode auto (dipanggil tiap AI selesai bicara) */
+    private fun reopenListen() {
+        val w = ws ?: return
+        val sid = sessionId ?: return
+        sendJson(w, JSONObject().apply {
+            put("session_id", sid)
+            put("type", "listen")
+            put("state", "start")
+            put("mode", "auto")
+        })
+        audio?.startMic()
+        xzlog("listen auto dibuka ulang")
+        uiStatus("Mic aktif - bicara saja")
+    }
+
     private fun handleMcp(payload: JSONObject?, w: WebSocket?) {
         if (payload == null || w == null) return
         val id = if (payload.has("id")) payload.opt("id") else null
@@ -465,7 +481,10 @@ class XiaozhiDevice(
                 uiStatus("Mengambil foto untuk AI...")
                 camExec.execute {
                     val answer = try { explainPhoto(question) }
-                        catch (e: Exception) { "camera error: ${e.message}" }
+                        catch (e: Exception) {
+                            xzlog("kamera error: ${e.javaClass.simpleName}: ${e.message}")
+                            "{\"success\":false,\"message\":\"camera error: ${e.javaClass.simpleName}\"}"
+                        }
                     reply(JSONObject().apply {
                         put("content", org.json.JSONArray().put(JSONObject()
                             .put("type", "text").put("text", answer)))
@@ -481,11 +500,14 @@ class XiaozhiDevice(
     /** Ambil 1 foto JPEG (kamera belakang) maksimal ~800px sisi terpanjang */
     private fun captureJpeg(maxSide: Int = 800): ByteArray? {
         val cm = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        val backId = cm.cameraIdList.firstOrNull {
+        // kamera depan (selfie) supaya AI "melihat" kita seperti video call
+        val frontId = cm.cameraIdList.firstOrNull {
             cm.getCameraCharacteristics(it)
-                .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
-        } ?: cm.cameraIdList.firstOrNull() ?: return null
-        val chars = cm.getCameraCharacteristics(backId)
+                .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+        }
+        val camId = frontId ?: cm.cameraIdList.firstOrNull() ?: return null
+        val jpegRot = if (frontId != null) 270 else 90
+        val chars = cm.getCameraCharacteristics(camId)
         val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val size = map.getOutputSizes(ImageFormat.JPEG).firstOrNull { it.width <= 1600 }
             ?: map.getOutputSizes(ImageFormat.JPEG).first()
@@ -496,7 +518,7 @@ class XiaozhiDevice(
         var jpeg: ByteArray? = null
         var err: String? = null
         val latch = CountDownLatch(1)
-        cm.openCamera(backId, object : CameraDevice.StateCallback() {
+        cm.openCamera(camId, object : CameraDevice.StateCallback() {
             override fun onOpened(cam: CameraDevice) {
                 try {
                     val outputs = java.util.Collections.singletonList(reader.surface)
@@ -505,7 +527,7 @@ class XiaozhiDevice(
                             try {
                                 val reqB = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                                     addTarget(reader.surface)
-                                    set(CaptureRequest.JPEG_ORIENTATION, 90)
+                                    set(CaptureRequest.JPEG_ORIENTATION, jpegRot)
                                 }
                                 reader.setOnImageAvailableListener({ r ->
                                     val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
@@ -615,6 +637,9 @@ class XiaozhiDevice(
                         audio?.stopPlayback()
                         uiThinking(false)
                         uiSpeaking(false)
+                        // percakapan berkelanjutan: buka lagi sesi listen
+                        // supaya user tidak perlu menekan tombol lagi
+                        if (autoMode && !micMuted) reopenListen()
                     }
                     "sentence_start" -> if (root.has("text")) {
                         uiChat("AI", root.optString("text"))
