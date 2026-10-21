@@ -6,6 +6,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.util.Log // <-- Ini yang tadi kurang
 
 class XiaozhiAccessibilityService : AccessibilityService() {
 
@@ -17,6 +18,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         inst = this
+        Log.d("XZAccess", "Accessibility Service Terhubung")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -24,6 +26,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         inst = null
+        Log.d("XZAccess", "Accessibility Service Terputus")
         return super.onUnbind(intent)
     }
 
@@ -33,8 +36,14 @@ class XiaozhiAccessibilityService : AccessibilityService() {
             .addStroke(GestureDescription.StrokeDescription(p, 0, 60))
             .build()
         dispatchGesture(g, object : GestureResultCallback() {
-            override fun onCompleted(gesture: GestureDescription?) { done(true) }
-            override fun onCancelled(gesture: GestureDescription?) { done(false) }
+            override fun onCompleted(gesture: GestureDescription?) { 
+                Log.d("XZAccess", "Berhasil klik di koordinat ($x, $y)")
+                done(true) 
+            }
+            override fun onCancelled(gesture: GestureDescription?) { 
+                Log.d("XZAccess", "Gagal klik / dibatalkan")
+                done(false) 
+            }
         }, null)
     }
 
@@ -75,36 +84,34 @@ class XiaozhiAccessibilityService : AccessibilityService() {
     }
 
     // Fungsi pintar: Pergi ke Home -> Baca layar -> Cari ikon aplikasi -> Klik otomatis
-        fun openAppByNameOnScreen(targetName: String, done: (Boolean) -> Unit) {
+    fun openAppByNameOnScreen(targetName: String, done: (Boolean) -> Unit) {
         Log.d("XZAccess", "Mencoba membuka aplikasi: $targetName")
         performGlobalAction(GLOBAL_ACTION_HOME)
         
-        // Beri jeda 1000ms (1 detik) agar halaman utama benar-benar terbuka
         android.os.Handler(mainLooper).postDelayed({
             val root = rootInActiveWindow
             if (root == null) {
-                Log.e("XZAccess", "Gagal: rootInActiveWindow bernilai NULL (Aksesibilitas mungkin belum aktif di sistem)")
+                Log.e("XZAccess", "Gagal: rootInActiveWindow bernilai NULL (Aksesibilitas belum aktif)")
                 done(false)
                 return@postDelayed
             }
 
-            // Debug: Cek apakah teks di layar bisa dibaca
             val allText = dumpScreenText()
-            Log.d("XZAccess", "Teks yang terbaca di layar:\n$allText")
+            Log.d("XZAccess", "Teks terbaca di layar:\n$allText")
 
             val targetNode = findNodeByText(root, targetName)
             if (targetNode != null) {
-                Log.d("XZAccess", "Aplikasi $targetName ditemukan di layar! Mencoba klik...")
+                Log.d("XZAccess", "Aplikasi $targetName ditemukan! Mencoba klik...")
                 if (targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     done(true)
                 } else {
                     val rect = Rect()
                     targetNode.getBoundsInScreen(rect)
-                    Log.d("XZAccess", "Klik node gagal, mencoba klik koordinat: ${rect.centerX()}, ${rect.centerY()}")
+                    Log.d("XZAccess", "Klik node gagal, mencoba koordinat: ${rect.centerX()}, ${rect.centerY()}")
                     tapXY(rect.centerX().toFloat(), rect.centerY().toFloat(), done)
                 }
             } else {
-                Log.e("XZAccess", "Aplikasi $targetName tidak ditemukan di node layar manapun.")
+                Log.e("XZAccess", "Aplikasi $targetName tidak ditemukan di layar.")
                 done(false)
             }
         }, 1000)
