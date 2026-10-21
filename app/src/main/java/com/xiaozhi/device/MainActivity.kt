@@ -1,79 +1,99 @@
 package com.xiaozhi.device
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.view.MotionEvent
-import android.widget.Button
-import android.widget.TextView
+import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import org.json.JSONObject
 
+/**
+ * Tampilan panggilan video 1-on-1 (Live2D) via WebView assets/videocall.html.
+ * Kotlin menangani jaringan + audio; UI, karakter, waveform, dan lip-sync
+ * dirender di HTML/JS. Jembatan dua arah:
+ *   AndroidBridge.XXX   : JS   -> Kotlin (connect, talkStart, ...)
+ *   window.onXXX(...)   : Kotlin -> JS  (status, level audio, chat, ...)
+ */
 class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
 
     private var device: XiaozhiDevice? = null
     private var connected = false
     private var talking = false
-    private var chatLog = StringBuilder()
 
-    private lateinit var tvStatus: TextView
-    private lateinit var tvDeviceId: TextView
-    private lateinit var tvCode: TextView
-    private lateinit var tvActivationTitle: TextView
-    private lateinit var tvChat: TextView
-    private lateinit var btnConnect: Button
-    private lateinit var btnTalk: Button
-
+    private lateinit var webView: WebView
     private val permCode = 77
 
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-tvStatus = findViewById(R.id.tvStatus)
-        tvDeviceId = findViewById(R.id.tvDeviceId)
-        tvCode = findViewById(R.id.tvCode)
-        tvActivationTitle = findViewById(R.id.tvActivationTitle)
-        tvChat = findViewById(R.id.tvChat)
-        btnConnect = findViewById(R.id.btnConnect)
-        btnTalk = findViewById(R.id.btnTalk)
+        webView = findViewById(R.id.webView)
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+            loadWithOverviewMode = true
+            useWideViewPort = true
+        }
+        webView.setBackgroundColor(0xFF0D1117.toInt())
+        webView.webViewClient = WebViewClient()
+        webView.addJavascriptInterface(Bridge(), "AndroidBridge")
+        webView.loadUrl("file:///android_asset/videocall.html")
 
         device = XiaozhiDevice(this, this)
-        tvDeviceId.text = device?.deviceInfo() ?: ""
+        pushDeviceInfo()
+    }
 
-        btnConnect.setOnClickListener {
-            if (connected) {
-                device?.stop()
-            } else {
+    /** Jembatan dipanggil dari JS */
+    inner class Bridge {
+        @JavascriptInterface
+        fun connect() {
+            runOnUiThread {
+                if (connected) return@runOnUiThread
                 if (!hasMicPermission()) {
                     ActivityCompat.requestPermissions(
-                        this, arrayOf(Manifest.permission.RECORD_AUDIO), permCode)
-                    return@setOnClickListener
+                        this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), permCode)
+                } else {
+                    device?.start()
                 }
-                device?.start()
             }
         }
 
-        // Push to talk: tahan = bicara, lepas = kirim
-        btnTalk.setOnTouchListener { v, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    if (connected && !talking) {
-                        talking = true
-                        device?.startTalking()
-                        v.performClick()
-                        true
-                    } else false
+        @JavascriptInterface
+        fun disconnect() {
+            runOnUiThread {
+                talking = false
+                connected = false
+                device?.stop()
+                js("window.onDisconnected('Panggilan diakhiri')")
+            }
+        }
+
+        @JavascriptInterface
+        fun talkStart() {
+            runOnUiThread {
+                if (connected && !talking) {
+                    talking = true
+                    device?.startTalking()
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (talking) {
-                        talking = false
-                        device?.stopTalking()
-                        true
-                    } else false
+            }
+        }
+
+        @JavascriptInterface
+        fun talkStop() {
+            runOnUiThread {
+                if (talking) {
+                    talking = false
+                    device?.stopTalking()
                 }
-                else -> false
             }
         }
     }
@@ -85,7 +105,8 @@ tvStatus = findViewById(R.id.tvStatus)
         if (requestCode == permCode && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
             device?.start()
         } else {
-            Toast.makeText(this, "Izin mic wajib untuk bicara", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Izin mic wajib untuk panggilan", Toast.LENGTH_LONG).show()
+            js("window.onStatus('Izin mic ditolak')")
         }
     }
 
@@ -93,50 +114,68 @@ tvStatus = findViewById(R.id.tvStatus)
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
 
-    // ---------------- callback dari XiaozhiDevice ----------------
+    /** Eksekusi JS di UI thread (aman dipanggil dari thread mana pun) */
+    private fun js(code: String) {
+        runOnUiThread {
+            if (webView.visibility == View.VISIBLE) {
+                webView.evaluateJavascript(code, null)
+            }
+        }
+    }
+
+    private fun pushDeviceInfo() {
+        val info = device?.deviceInfo() ?: ""
+        js("window.onDeviceInfo(${JSONObject.quote(info)})")
+    }
+
+    // ---------------- callback dari XiaozhiDevice -> WebView ----------------
 
     override fun onStatus(text: String) {
-        tvStatus.text = text
+        js("window.onStatus(${JSONObject.quote(text)})")
     }
 
     override fun onActivationCode(code: String, message: String) {
-        tvActivationTitle.visibility = TextView.VISIBLE
-        tvCode.visibility = TextView.VISIBLE
-        tvCode.text = code
-        if (message.isNotEmpty()) tvStatus.text = message
+        js("window.onActivation(${JSONObject.quote(code)}, ${JSONObject.quote(message)})")
     }
 
     override fun onActivationDone() {
-        tvActivationTitle.visibility = TextView.GONE
-        tvCode.visibility = TextView.GONE
+        js("window.onActivationDone()")
     }
 
     override fun onConnected() {
         connected = true
-        btnConnect.text = "Disconnect"
-        btnTalk.isEnabled = true
-        Toast.makeText(this, "Terhubung ke Xiaozhi", Toast.LENGTH_SHORT).show()
+        js("window.onConnected()")
     }
 
     override fun onDisconnected(reason: String) {
         connected = false
         talking = false
-        btnConnect.text = "Connect"
-        btnTalk.isEnabled = false
-        tvStatus.text = "Terputus: $reason"
+        js("window.onDisconnected(${JSONObject.quote(reason)})")
     }
 
     override fun onChat(role: String, text: String) {
-        chatLog.append("$role: $text\n")
-        tvChat.text = chatLog.toString()
+        js("window.onChat(${JSONObject.quote(role)}, ${JSONObject.quote(text)})")
     }
 
     override fun onSpeaking(speaking: Boolean) {
-        btnTalk.text = if (speaking) "AI bicara... (tahan untuk potong)" else "Tahan untuk bicara"
+        js("window.onSpeaking($speaking)")
+    }
+
+    override fun onThinking(active: Boolean) {
+        js("window.onThinking($active)")
+    }
+
+    override fun onMicLevel(level: Float) {
+        js("window.onMicLevel($level)")
+    }
+
+    override fun onTtsLevel(level: Float) {
+        js("window.onTtsLevel($level)")
     }
 
     override fun onDestroy() {
         device?.stop()
+        webView.destroy()
         super.onDestroy()
     }
 }
