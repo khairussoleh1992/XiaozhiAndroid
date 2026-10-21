@@ -146,6 +146,24 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             }
         }
 
+                @JavascriptInterface
+        fun openApp(appName: String) {
+            runOnUiThread {
+                val service = XiaozhiAccessibilityService.inst
+                if (service != null) {
+                    service.openAppByNameOnScreen(appName) { success ->
+                        if (success) {
+                            js("window.onChat('assistant', 'Membuka $appName')")
+                        } else {
+                            js("window.onChat('assistant', 'Aplikasi $appName tidak ditemukan di layar.')")
+                        }
+                    }
+                } else {
+                    js("window.onChat('assistant', 'Layanan Aksesibilitas belum aktif.')")
+                }
+            }
+        }
+
         // --- TAMBAHAN BRIDGE UNTUK AKSESIBILITAS ---
 
         @JavascriptInterface
