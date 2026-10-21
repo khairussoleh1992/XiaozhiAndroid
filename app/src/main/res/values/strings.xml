@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Xiaozhi Device</string>
+    <string name="acc_desc">Lets the Xiaozhi AI see the screen and control the phone: tap, swipe, back, home and open apps.</string>
 </resources>
