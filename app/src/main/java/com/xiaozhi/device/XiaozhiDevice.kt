@@ -525,12 +525,57 @@ class XiaozhiDevice(
                         "Return: A JSON object that provides the photo information.")
                     put("inputSchema", schema)
                 })
+                val appSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().put("target", JSONObject().apply {
+                        put("type", "string")
+                        put("description", "App label like whatsapp / camera / settings, or package name like com.whatsapp")
+                    }))
+                    put("required", org.json.JSONArray().put("target"))
+                }
+                val tapSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("x", JSONObject().put("type", "integer"))
+                        put("y", JSONObject().put("type", "integer"))
+                    })
+                    put("required", org.json.JSONArray().put("x").put("y"))
+                }
+                val swipeSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("start_x", JSONObject().put("type", "integer"))
+                        put("start_y", JSONObject().put("type", "integer"))
+                        put("end_x", JSONObject().put("type", "integer"))
+                        put("end_y", JSONObject().put("type", "integer"))
+                        put("duration_ms", JSONObject().put("type", "integer"))
+                    })
+                    put("required", org.json.JSONArray().put("start_x").put("start_y")
+                        .put("end_x").put("end_y"))
+                }
+                fun phEntry(nm: String, d: String, sch: JSONObject = emptySchema): JSONObject =
+                    JSONObject().apply { put("name", nm); put("description", d); put("inputSchema", sch) }
+                toolsArr.put(phEntry("self.phone.open_app",
+                    "You are running ON the user's Android phone and you can control it. " +
+                    "Open an app by label or package name, e.g. whatsapp, camera, settings, calculator.", appSch))
+                toolsArr.put(phEntry("self.phone.screen_text",
+                    "Read the current phone screen. Returns visible texts with positions [x,y]. " +
+                    "Use before tapping to find coordinates.", emptySchema))
+                toolsArr.put(phEntry("self.phone.tap",
+                    "Tap the screen at pixel coordinates. Find coordinates with screen_text.", tapSch))
+                toolsArr.put(phEntry("self.phone.swipe",
+                    "Swipe the screen from start to end coordinates (scroll or navigate). " +
+                    "duration_ms default 300.", swipeSch))
+                toolsArr.put(phEntry("self.phone.back",
+                    "Press the phone BACK button.", emptySchema))
+                toolsArr.put(phEntry("self.phone.home",
+                    "Press the phone HOME button.", emptySchema))
                 // JANGAN kirim nextCursor kosong: server mengira masih ada
                 // halaman berikutnya lalu mengulang tools/list tanpa henti
                 reply(JSONObject().apply {
                     put("tools", toolsArr)
                 })
-                xzlog("MCP tools/list dijawab: 4 tools, tanpa nextCursor")
+                xzlog("MCP tools/list dijawab: 10 tools, tanpa nextCursor")
             }
             "tools/call" -> {
                 val name = payload.optJSONObject("params")?.optString("name") ?: ""
@@ -549,6 +594,24 @@ class XiaozhiDevice(
                     reply(JSONObject().apply {
                         put("content", org.json.JSONArray().put(JSONObject()
                             .put("type", "text").put("text", "true")))
+                        put("isError", false)
+                    })
+                    return
+                }
+                if (name.startsWith("self.phone.")) {
+                    val pargs = payload.optJSONObject("params")?.optJSONObject("arguments") ?: JSONObject()
+                    xzlog("AI kontrol HP: $name $pargs")
+                    val latchP = java.util.concurrent.CountDownLatch(1)
+                    var pout = ""
+                    camExec.execute {
+                        pout = try { phoneTool(name, pargs) } catch (e: Exception) { "error: " + e.message }
+                        latchP.countDown()
+                    }
+                    try { latchP.await(6, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) { }
+                    if (pout.isEmpty()) pout = "error: timeout"
+                    reply(JSONObject().apply {
+                        put("content", org.json.JSONArray().put(JSONObject()
+                            .put("type", "text").put("text", pout)))
                         put("isError", false)
                     })
                     return
@@ -580,6 +643,69 @@ class XiaozhiDevice(
     }
 
     /** Ambil 1 foto JPEG (kamera belakang) maksimal ~800px sisi terpanjang */
+    /** Kontrol HP untuk AI: buka app, baca layar, tap, swipe, back, home */
+    private fun phoneTool(name: String, args: org.json.JSONObject): String {
+        fun num(k: String): Double = (args.opt(k)?.toString() ?: "").toDoubleOrNull() ?: -1.0
+        if (name == "self.phone.open_app") {
+            var target = args.optString("target", "")
+            if (target.isEmpty()) target = args.optString("app", "")
+            if (target.isEmpty()) target = args.optString("name", "")
+            target = target.trim()
+            if (target.isEmpty()) return "error: provide app name or package"
+            val pm = appContext.packageManager
+            val launcher = android.content.Intent(android.content.Intent.ACTION_MAIN)
+                .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+            val list = pm.queryIntentActivities(launcher, 0)
+            val m = list.firstOrNull { it.activityInfo.packageName.equals(target, true) }
+                ?: list.firstOrNull { (it.loadLabel(pm)?.toString() ?: "").contains(target, true) }
+                ?: return "error: app not found: $target"
+            appContext.startActivity(android.content.Intent(android.content.Intent.ACTION_MAIN)
+                .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+                .setClassName(m.activityInfo.packageName, m.activityInfo.name)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            return "ok: opened " + (m.loadLabel(pm) ?: target)
+        }
+        val acc = XiaozhiAccessibilityService.inst
+            ?: return "error: phone control not enabled. Ask the user to enable: " +
+                "Settings > Accessibility > Xiaozhi Control, then try again"
+        when (name) {
+            "self.phone.screen_text" -> {
+                val t = acc.dumpScreenText()
+                return if (t.isEmpty()) "screen text empty or not readable" else t
+            }
+            "self.phone.tap" -> {
+                val x = num("x")
+                val y = num("y")
+                if (x < 0 || y < 0) return "error: x and y required"
+                val done = java.util.concurrent.atomic.AtomicBoolean(false)
+                val l = java.util.concurrent.CountDownLatch(1)
+                acc.tapXY(x.toFloat(), y.toFloat()) { d -> done.set(d); l.countDown() }
+                l.await(3, java.util.concurrent.TimeUnit.SECONDS)
+                return if (done.get()) "ok: tapped $x,$y" else "error: tap failed"
+            }
+            "self.phone.swipe" -> {
+                val x1 = num("start_x")
+                val y1 = num("start_y")
+                val x2 = num("end_x")
+                val y2 = num("end_y")
+                if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) {
+                    return "error: start_x, start_y, end_x, end_y required"
+                }
+                val dur = (args.opt("duration_ms")?.toString() ?: "").toDoubleOrNull()?.toLong() ?: 300L
+                val done = java.util.concurrent.atomic.AtomicBoolean(false)
+                val l = java.util.concurrent.CountDownLatch(1)
+                acc.swipeXY(x1.toFloat(), y1.toFloat(), x2.toFloat(), y2.toFloat(), dur) { d -> done.set(d); l.countDown() }
+                l.await(4, java.util.concurrent.TimeUnit.SECONDS)
+                return if (done.get()) "ok: swiped" else "error: swipe failed"
+            }
+            "self.phone.back" -> return if (acc.globalAction(
+                android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)) "ok" else "error"
+            "self.phone.home" -> return if (acc.globalAction(
+                android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)) "ok" else "error"
+        }
+        return "error: unknown phone tool"
+    }
+
     private fun captureJpeg(maxSide: Int = 800, useBack: Boolean = false): ByteArray? {
         val cm = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         // default kamera depan (selfie); useBack=true -> kamera belakang
