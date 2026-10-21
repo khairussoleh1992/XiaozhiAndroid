@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         pushDeviceInfo()
     }
 
-    inner class Bridge {
+       inner class Bridge {
         @JavascriptInterface
         fun connect() {
             runOnUiThread {
@@ -98,7 +98,6 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
                     connected = false
                     talking = false
                     stopCallService()
-                    
                     device?.start()
                 }
             }
@@ -144,6 +143,61 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         fun openApp(keyword: String) {
             runOnUiThread {
                 openAppByKeyword(keyword)
+            }
+        }
+
+        // --- TAMBAHAN BRIDGE UNTUK AKSESIBILITAS ---
+
+        @JavascriptInterface
+        fun clickScreen(x: Float, y: Float) {
+            runOnUiThread {
+                val service = XiaozhiAccessibilityService.inst
+                if (service != null) {
+                    service.tapXY(x, y) { success ->
+                        if (!success) {
+                            js("window.onChat('assistant', 'Gagal melakukan klik di layar.')")
+                        }
+                    }
+                } else {
+                    js("window.onChat('assistant', 'Layanan Aksesibilitas belum aktif di pengaturan HP.')")
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun swipeScreen(x1: Float, y1: Float, x2: Float, y2: Float, durMs: Long) {
+            runOnUiThread {
+                XiaozhiAccessibilityService.inst?.swipeXY(x1, y1, x2, y2, durMs) { _ -> }
+            }
+        }
+
+        @JavascriptInterface
+        fun goHome() {
+            runOnUiThread {
+                // GLOBAL_ACTION_HOME bernilai 4
+                XiaozhiAccessibilityService.inst?.globalAction(4)
+            }
+        }
+
+        @JavascriptInterface
+        fun goBack() {
+            runOnUiThread {
+                // GLOBAL_ACTION_BACK bernilai 1
+                XiaozhiAccessibilityService.inst?.globalAction(1)
+            }
+        }
+
+        @JavascriptInterface
+        fun readScreen() {
+            runOnUiThread {
+                val service = XiaozhiAccessibilityService.inst
+                if (service != null) {
+                    val screenText = service.dumpScreenText()
+                    // Mengirim teks layar kembali ke AI/JS
+                    js("window.onScreenText(${JSONObject.quote(screenText)})")
+                } else {
+                    js("window.onChat('assistant', 'Layanan Aksesibilitas tidak aktif.')")
+                }
             }
         }
     }
