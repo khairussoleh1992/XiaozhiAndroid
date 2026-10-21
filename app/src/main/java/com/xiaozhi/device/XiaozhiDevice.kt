@@ -449,7 +449,12 @@ class XiaozhiDevice(
                 val vision = payload.optJSONObject("params")
                     ?.optJSONObject("capabilities")?.optJSONObject("vision")
                 if (vision != null) {
-                    visionUrl = vision.optString("url")
+                    // server kadang memberi URL http:// -> app memblokir cleartext.
+                    // Ubah ke https:// (api.xiaozhi.me mendukung TLS).
+                    visionUrl = vision.optString("url").let {
+                        if (it.startsWith("http://")) "https://" + it.substring(7) else it
+                    }
+                    xzlog("vision url: ${visionUrl ?: "-"}")
                     visionToken = vision.optString("token")
                     xzlog("MCP init: vision url diterima")
                 } else {
