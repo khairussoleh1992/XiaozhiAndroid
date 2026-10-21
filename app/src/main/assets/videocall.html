@@ -28,6 +28,13 @@
 
   #live2d-canvas { position:absolute; inset:0; z-index:10; }
   #particles { position:absolute; inset:0; z-index:12; pointer-events:none; }
+  #selfcam { position:absolute; right:14px; top:78px; width:112px; aspect-ratio:3/4;
+    border-radius:14px; overflow:hidden; z-index:14; display:none;
+    border:1px solid rgba(255,255,255,.16); background:#000;
+    box-shadow:0 6px 24px rgba(0,0,0,.45); }
+  #selfcam video { width:100%; height:100%; object-fit:cover; display:block; }
+  #selfcam .tag { position:absolute; left:6px; bottom:6px; font-size:9px;
+    background:rgba(233,64,64,.9); padding:1px 6px; border-radius:6px; }
   #camera-off { position:absolute; inset:0; z-index:13; display:none;
     background:rgba(10,12,18,.96); }
   #camera-off .avatar { position:absolute; left:50%; top:42%; transform:translate(-50%,-50%);
@@ -129,6 +136,7 @@
   <canvas id="live2d-canvas"></canvas>
   <canvas id="particles"></canvas>
 
+  <div id="selfcam"><video id="selfcam-video" autoplay muted playsinline></video><span class="tag">LIVE</span></div>
   <div id="camera-off">
     <div class="avatar">C</div>
     <div style="position:absolute;bottom:30%;left:0;right:0;text-align:center;font-size:12px;color:#94a3b8;">Kamera dimatikan</div>
@@ -436,7 +444,7 @@ window.onStatus = function (t) { setStatus(t); };
 window.onConnected = function () {
   STATE.connected = true; STATE.thinking = false;
   $("gate").style.display = "none";
-  setStatus("Siap! Tahan tombol tengah untuk bicara");
+  setStatus("Siap! Langsung bicara saja");
   refreshBadge();
 };
 window.onDisconnected = function (reason) {
@@ -450,7 +458,7 @@ window.onDisconnected = function (reason) {
 window.onChat = function (role, text) { pushChat(role, text); };
 window.onSpeaking = function (b) {
   STATE.speaking = b;
-  if (!b) { mouthTarget = 0; $("subtitle").style.display = "none"; setStatus("Siap! Tahan tombol tengah untuk bicara"); }
+  if (!b) { mouthTarget = 0; $("subtitle").style.display = "none"; setStatus("Siap! Langsung bicara saja"); }
   else setStatus("Partner sedang berbicara...");
 };
 window.onThinking = function (b) {
@@ -482,27 +490,23 @@ window.onDeviceInfo = function (info) {
 };
 
 /* ---------------- controls ---------------- */
-function talkStart() {
-  if (!STATE.connected || STATE.muted) return;
-  STATE.listening = true;
-  $("mic-live").style.display = "inline";
-  $("btn-talk").classList.add("holding");
-  setStatus("Sedang mendengarkan...");
-  if (window.AndroidBridge) AndroidBridge.talkStart();
-}
-function talkEnd() {
-  if (!STATE.listening) return;
-  STATE.listening = false;
-  $("mic-live").style.display = "none";
-  $("btn-talk").classList.remove("holding");
-  if (window.AndroidBridge) AndroidBridge.talkStop();
-}
-
+/* Mode otomatis: mic selalu hidup setelah connect, tanpa tombol.
+   Tombol tengah kini hanya mute/unmute mic. */
 var talkBtn = $("btn-talk");
-talkBtn.addEventListener("pointerdown", function (e) { e.preventDefault(); talkStart(); });
-talkBtn.addEventListener("pointerup",   function () { talkEnd(); });
-talkBtn.addEventListener("pointercancel", function () { talkEnd(); });
-talkBtn.addEventListener("pointerleave", function () { talkEnd(); });
+talkBtn.addEventListener("click", function () {
+  if (!STATE.connected) return;
+  if (window.AndroidBridge) AndroidBridge.micToggle();
+  STATE.micoff = !STATE.micoff;
+  if (STATE.micoff) {
+    $("mic-live").style.display = "none";
+    talkBtn.classList.remove("holding");
+    setStatus("Mic dimatikan");
+  } else {
+    $("mic-live").style.display = "inline";
+    talkBtn.classList.add("holding");
+    setStatus("Mic aktif - bicara saja");
+  }
+});
 
 $("btn-mute").addEventListener("click", function () {
   STATE.muted = !STATE.muted;
@@ -510,11 +514,43 @@ $("btn-mute").addEventListener("click", function () {
   this.innerHTML = STATE.muted ? "&#128263;" : "&#127908;";
   setStatus(STATE.muted ? "Mic dibisukan" : "Mic aktif");
 });
+var camStream = null;
+function camOff() {
+  if (camStream) { camStream.getTracks().forEach(function (t) { t.stop(); }); camStream = null; }
+  var v = document.getElementById("selfcam-video");
+  if (v) v.srcObject = null;
+  document.getElementById("selfcam").style.display = "none";
+}
 $("btn-cam").addEventListener("click", function () {
   STATE.camOn = !STATE.camOn;
   this.classList.toggle("off", !STATE.camOn);
   $("camera-off").style.display = STATE.camOn ? "none" : "flex";
   $("live2d-canvas").style.visibility = STATE.camOn ? "visible" : "hidden";
+  if (STATE.camOn) {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+        .then(function (s) {
+          camStream = s;
+          var v = document.getElementById("selfcam-video");
+          v.srcObject = s;
+          v.play().catch(function () {});
+          document.getElementById("selfcam").style.display = "block";
+          setStatus("Kamera aktif - AI bisa diminta melihat");
+        })
+        .catch(function (e) {
+          STATE.camOn = false;
+          $("btn-cam").classList.add("off");
+          setStatus("Kamera gagal: " + (e.name || e.message));
+        });
+    } else {
+      STATE.camOn = false;
+      $("btn-cam").classList.add("off");
+      setStatus("Kamera tidak didukung WebView ini");
+    }
+  } else {
+    camOff();
+    setStatus("Kamera dimatikan");
+  }
 });
 $("btn-expr").addEventListener("click", triggerExpression);
 
