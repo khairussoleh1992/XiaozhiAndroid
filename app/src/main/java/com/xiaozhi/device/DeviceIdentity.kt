@@ -17,10 +17,14 @@ object DeviceIdentity {
         if (mac == null) {
             val b = ByteArray(6)
             SecureRandom().nextBytes(b)
-            mac = b.joinToString(":") { String.format("%02X", it) }
+            mac = b.joinToString(":") { String.format("%02x", it) }
             prefs.edit().putString("mac", mac).apply()
         }
-        return mac
+        // Server xiaozhi menutup websocket tanpa balasan kalau MAC huruf BESAR.
+        // Paksa huruf kecil, termasuk untuk MAC lama yang sudah tersimpan.
+        val lower = mac.lowercase()
+        if (lower != mac) prefs.edit().putString("mac", lower).apply()
+        return lower
     }
 
     fun uuid(context: Context): String {
