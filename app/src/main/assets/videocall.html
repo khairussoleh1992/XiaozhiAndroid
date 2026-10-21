@@ -197,8 +197,8 @@
         <button class="pill-btn" style="margin-top:8px;" id="btn-apply-model">Muat Model</button>
       </div>
       <div class="set-row">
-        <div class="set-lbl">ZOOM KARAKTER (<span id="lbl-zoom">2.0</span>x tinggi layar)</div>
-        <input type="range" class="set-slider" id="inp-zoom" min="1.2" max="3.2" step="0.05">
+        <div class="set-lbl">ZOOM KARAKTER (<span id="lbl-zoom">1.2</span>x tinggi layar)</div>
+        <input type="range" class="set-slider" id="inp-zoom" min="0.6" max="2.4" step="0.05">
       </div>
       <div class="set-row">
         <div class="set-lbl">GESER VERTIKAL (<span id="lbl-dy">1.7</span>x tinggi layar)</div>
@@ -213,7 +213,7 @@
 
 <script src="live2d/pixi.min.js" onerror="bootFail('pixi.min.js gagal dimuat')"></script>
 <script src="live2d/live2dcubismcore.min.js" onerror="bootFail('live2dcubismcore gagal dimuat')"></script>
-<script src="live2d/live2d-display.min.js" onerror="bootFail('live2d-display gagal dimuat')"></script>
+<script src="live2d/live2d-cubism4.min.js" onerror="bootFail('live2d-cubism4 gagal dimuat')"></script>
 <script>
 /* =================================================================
    Xiaozhi Live Video Call - UI layer
@@ -230,8 +230,8 @@ var STATE = {
 var DEFAULT_MODEL = "live2d/haru/haru_greeter_t03.model3.json";
 var cfg = {
   model: localStorage.getItem("xzh_model") || DEFAULT_MODEL,
-  zoom: parseFloat(localStorage.getItem("xzh_zoom") || "2.0"),
-  dy:   parseFloat(localStorage.getItem("xzh_dy")   || "1.7")
+  zoom: parseFloat(localStorage.getItem("xzh_zoom2") || "1.2"),
+  dy:   parseFloat(localStorage.getItem("xzh_dy2")   || "1.22")
 };
 
 /* ---------------- Live2D ---------------- */
@@ -259,8 +259,11 @@ async function bootLive2D() {
     if (!window.PIXI) return bootFail("pustaka PIXI tidak termuat");
     app = new PIXI.Application({
       view: document.getElementById("live2d-canvas"),
-      resizeTo: window, backgroundAlpha: 0, antialias: true,
+      width: window.innerWidth, height: window.innerHeight, backgroundAlpha: 0, antialias: true,
       autoDensity: true, resolution: window.devicePixelRatio || 1
+    });
+    window.addEventListener("resize", function () {
+      try { app.renderer.resize(window.innerWidth, window.innerHeight); layoutModel(); } catch (e) {}
     });
     bootStatus("Memuat karakter...");
     await loadModel(cfg.model);
@@ -274,7 +277,21 @@ async function loadModel(url) {
   try {
     if (model) { app.stage.removeChild(model); model.destroy(); model = null; }
     bootStatus("Memuat karakter...");
-    model = await PIXI.live2d.Live2DModel.from(url, { autoInteract: true });
+    // loader XHR di file:// kadang di-abort acak -> coba ulang sampai 4x
+    var lastErr = null;
+    for (var attempt = 1; attempt <= 4; attempt++) {
+      try {
+        if (attempt > 1) bootStatus("Memuat karakter... percobaan " + attempt + "/4");
+        model = await PIXI.live2d.Live2DModel.from(url, { autoInteract: true });
+        lastErr = null;
+        break;
+      } catch (e1) {
+        lastErr = e1;
+        console.warn("[XZ] load attempt " + attempt + " gagal: " + (e1 && e1.message));
+        await new Promise(function (r) { setTimeout(r, 500 * attempt); });
+      }
+    }
+    if (lastErr) throw lastErr;
     model.anchor.set(0.5, 1);
     app.stage.addChild(model);
     layoutModel();
@@ -285,7 +302,7 @@ async function loadModel(url) {
     app.ticker.add(function () {
       if (!model || !STATE.speaking) return;
       try {
-        var core = model.internal.core;
+        var core = model.internalModel.core;
         var v = mouthTarget * 1.4;
         if (v > 1) v = 1;
         if (core && core.setParameterValueById) core.setParameterValueById("ParamMouthOpenY", v);
@@ -301,7 +318,7 @@ async function loadModel(url) {
 function layoutModel() {
   if (!model || !app) return;
   var w = app.screen.width, h = app.screen.height;
-  var oh = model.internal.originalHeight || 1400;
+  var oh = (model.internalModel && model.internalModel.originalHeight) || model.height / (model.scale.y || 1) || 1400;
   var s = (h * cfg.zoom) / oh;
   model.scale.set(s);
   model.position.set(w / 2, h * cfg.dy);
@@ -318,8 +335,8 @@ window.addEventListener("pointerdown", function (e) {
 function triggerExpression() {
   if (!model) return;
   try {
-    if (model.internal.motionManager.expressionManager && model.internal.motionManager.expressionManager.setRandomExpression) {
-      model.internal.motionManager.expressionManager.setRandomExpression();
+    if (model.internalModel.motionManager.expressionManager && model.internalModel.motionManager.expressionManager.setRandomExpression) {
+      model.internalModel.motionManager.expressionManager.setRandomExpression();
     } else { model.motion("Tap"); }
     model.motion("Tap");
   } catch (e) { try { model.motion("Tap"); } catch (e2) {} }
@@ -522,11 +539,11 @@ $("btn-apply-model").addEventListener("click", function () {
 });
 $("inp-zoom").addEventListener("input", function () {
   cfg.zoom = parseFloat(this.value); $("lbl-zoom").textContent = cfg.zoom.toFixed(2);
-  localStorage.setItem("xzh_zoom", cfg.zoom); layoutModel();
+  localStorage.setItem("xzh_zoom2", cfg.zoom); layoutModel();
 });
 $("inp-dy").addEventListener("input", function () {
   cfg.dy = parseFloat(this.value); $("lbl-dy").textContent = cfg.dy.toFixed(2);
-  localStorage.setItem("xzh_dy", cfg.dy); layoutModel();
+  localStorage.setItem("xzh_dy2", cfg.dy); layoutModel();
 });
 
 /* mulai */
