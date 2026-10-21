@@ -55,7 +55,7 @@ class CallForegroundService : Service() {
             .setContentText("Panggilan sedang berlangsung...")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .ongoing(true)
+            .setOngoing(true) // <-- Diperbaiki dari ongoing(true) ke setOngoing(true)
             .build()
     }
 
