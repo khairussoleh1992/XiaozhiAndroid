@@ -6,7 +6,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.util.Log // <-- Ini yang tadi kurang
+import android.util.Log
 
 class XiaozhiAccessibilityService : AccessibilityService() {
 
@@ -30,6 +30,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
+    // Klik presisi menggunakan koordinat (paling ampuh untuk ikon aplikasi)
     fun tapXY(x: Float, y: Float, done: (Boolean) -> Unit) {
         val p = Path().apply { moveTo(x, y) }
         val g = GestureDescription.Builder()
@@ -47,6 +48,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
         }, null)
     }
 
+    // Geser layar (Swipe / Scroll)
     fun swipeXY(x1: Float, y1: Float, x2: Float, y2: Float, durMs: Long, done: (Boolean) -> Unit) {
         val p = Path().apply {
             moveTo(x1, y1)
@@ -63,6 +65,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
 
     fun globalAction(action: Int): Boolean = performGlobalAction(action)
 
+    // Membaca seluruh teks di layar untuk analisis AI
     fun dumpScreenText(maxLen: Int = 3000): String {
         val sb = StringBuilder()
         fun walk(n: AccessibilityNodeInfo?) {
@@ -83,41 +86,57 @@ class XiaozhiAccessibilityService : AccessibilityService() {
         return sb.toString()
     }
 
-    // Fungsi pintar: Pergi ke Home -> Baca layar -> Cari ikon aplikasi -> Klik otomatis
-    fun openAppByNameOnScreen(targetName: String, done: (Boolean) -> Unit) {
-        Log.d("XZAccess", "Mencoba membuka aplikasi: $targetName")
-        performGlobalAction(GLOBAL_ACTION_HOME)
+    // --- FUNGSI PINTAR: Buka Aplikasi dengan Inisiatif Swipe & Klik Akurat ---
+    fun openAppSmart(targetName: String, attempt: Int = 0, onResult: (Int, String) -> Unit) {
+        Log.d("XZAccess", "Mencari aplikasi: $targetName (Percobaan ke-${attempt + 1})")
         
+        if (attempt == 0) {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        }
+
         android.os.Handler(mainLooper).postDelayed({
             val root = rootInActiveWindow
             if (root == null) {
-                Log.e("XZAccess", "Gagal: rootInActiveWindow bernilai NULL (Aksesibilitas belum aktif)")
-                done(false)
+                onResult(0, "Layar tidak terdeteksi")
                 return@postDelayed
             }
 
-            val allText = dumpScreenText()
-            Log.d("XZAccess", "Teks terbaca di layar:\n$allText")
+            // Cari node aplikasi berdasarkan teks/deskripsi
+            val targetNode = findNodeByTextRecursive(root, targetName)
 
-            val targetNode = findNodeByText(root, targetName)
             if (targetNode != null) {
-                Log.d("XZAccess", "Aplikasi $targetName ditemukan! Mencoba klik...")
+                // Ketemu! Ambil koordinat tengahnya lalu klik langsung
+                val rect = Rect()
+                targetNode.getBoundsInScreen(rect)
+                val cx = rect.centerX().toFloat()
+                val cy = rect.centerY().toFloat()
+
+                Log.d("XZAccess", "Aplikasi $targetName ditemukan di koordinat ($cx, $cy). Mengeksekusi klik...")
+                
+                // Coba klik node dulu, jika gagal langsung tembak pakai koordinat tapXY
                 if (targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    done(true)
+                    onResult(1, targetName)
                 } else {
-                    val rect = Rect()
-                    targetNode.getBoundsInScreen(rect)
-                    Log.d("XZAccess", "Klik node gagal, mencoba koordinat: ${rect.centerX()}, ${rect.centerY()}")
-                    tapXY(rect.centerX().toFloat(), rect.centerY().toFloat(), done)
+                    tapXY(cx, cy) { success ->
+                        if (success) onResult(1, targetName) else onResult(0, "Gagal klik")
+                    }
+                }
+            } else if (attempt < 2) {
+                // Tidak ketemu di halaman ini? Geser layar (swipe ke halaman berikutnya) lalu cari lagi!
+                Log.d("XZAccess", "Tidak ketemu di halaman ini, melakukan swipe untuk mencari...")
+                swipeXY(900f, 1000f, 100f, 1000f, 300) { _ ->
+                    android.os.Handler(mainLooper).postDelayed({
+                        openAppSmart(targetName, attempt + 1, onResult)
+                    }, 600)
                 }
             } else {
-                Log.e("XZAccess", "Aplikasi $targetName tidak ditemukan di layar.")
-                done(false)
+                // Sudah dicari beberapa halaman tetap tidak ketemu
+                onResult(0, targetName)
             }
-        }, 1000)
+        }, 800)
     }
 
-    private fun findNodeByText(node: AccessibilityNodeInfo, target: String): AccessibilityNodeInfo? {
+    private fun findNodeByTextRecursive(node: AccessibilityNodeInfo, target: String): AccessibilityNodeInfo? {
         val text = node.text?.toString()?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
         val targetLower = target.lowercase()
@@ -128,7 +147,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            val result = findNodeByText(child, target)
+            val result = findNodeByTextRecursive(child, target)
             if (result != null) return result
         }
         return null
