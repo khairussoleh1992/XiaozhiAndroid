@@ -138,17 +138,23 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             }
         }
 
-        // Fungsi pintar buka aplikasi via screen reading & accessibility
+        // Fungsi pintar buka aplikasi via inisiatif swipe & klik otomatis
         @JavascriptInterface
         fun openApp(appName: String) {
             runOnUiThread {
                 val service = XiaozhiAccessibilityService.inst
                 if (service != null) {
-                    service.openAppByNameOnScreen(appName) { success ->
-                        if (success) {
-                            js("window.onChat('assistant', 'Membuka $appName')")
-                        } else {
-                            js("window.onChat('assistant', 'Aplikasi $appName tidak ditemukan di layar.')")
+                    service.openAppSmart(appName) { status, detail ->
+                        when (status) {
+                            1 -> {
+                                js("window.onChat('assistant', 'Membuka $detail')")
+                            }
+                            2 -> {
+                                js("window.onChat('assistant', 'Ditemukan beberapa pilihan untuk $appName: $detail. Mau buka yang mana?')")
+                            }
+                            else -> {
+                                js("window.onChat('assistant', 'Aplikasi $appName tidak ditemukan di layar.')")
+                            }
                         }
                     }
                 } else {
