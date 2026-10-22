@@ -15,6 +15,10 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Menambahkan variabel OTA_URL agar terbaca oleh BuildConfig di Kotlin
+        def otaUrl = project.hasProperty("XIAOZHI_OTA_URL") ? XIAOZHI_OTA_URL : ""
+        buildConfigField("String", "OTA_URL", "\"$otaUrl\"")
     }
 
     buildTypes {
