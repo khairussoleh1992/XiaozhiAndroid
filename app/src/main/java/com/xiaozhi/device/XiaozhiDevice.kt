@@ -624,10 +624,10 @@ class XiaozhiDevice(
                 toolsArr.put(phEntry("self.phone.whatsapp_reply",
                     "Send a WhatsApp message. Args: `text` (required) the message to send; `chat` optional contact/chat name to open first. " +
                     "Opens the chat, types the text and taps Send. IMPORTANT: only send what the user explicitly asked.", waReplySch))
-                toolsArr.put(phEntry("self.phone.gmail_read",
-                    "Open the Gmail app and read the latest inbox emails (sender, subject, snippet). Use when the user asks to check their email / surel / pesan masuk."))
-                toolsArr.put(phEntry("self.phone.gmail_reply",
-                    "Reply to the email currently open in Gmail. Args: `text` (required) the reply body. Taps Reply, types the text and taps Send. " +
+                toolsArr.put(phEntry("self.phone.outlook_read",
+                    "Open the Microsoft Outlook app (the user's email app) and read the latest inbox emails (sender, subject, snippet). Use when the user asks to check their email / surel / pesan masuk."))
+                toolsArr.put(phEntry("self.phone.outlook_reply",
+                    "Reply to the email currently open in Outlook. Args: `text` (required) the reply body. Taps Reply, types the text and taps Send. " +
                     "IMPORTANT: only send what the user explicitly asked.", txtSch))
                 toolsArr.put(phEntry("self.phone.open_app",
                     "You are running ON the user's Android phone and you can control it. " +
@@ -842,19 +842,19 @@ class XiaozhiDevice(
                 val r = res.get()
                 return if (r.isEmpty()) "error: timeout mengirim pesan" else r
             }
-            "self.phone.gmail_read" -> {
+            "self.phone.outlook_read" -> {
                 val res = java.util.concurrent.atomic.AtomicReference("")
                 val latch = java.util.concurrent.CountDownLatch(1)
                 val done: (Int, String) -> Unit = { st, msg ->
                     res.set(if (st == 1) msg else "error: $msg")
                     latch.countDown()
                 }
-                ui.post { acc.gmailRead(done) }
+                ui.post { acc.outlookRead(done) }
                 latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
                 val r = res.get()
-                return if (r.isEmpty()) "error: timeout membuka Gmail" else r
+                return if (r.isEmpty()) "error: timeout membuka Outlook" else r
             }
-            "self.phone.gmail_reply" -> {
+            "self.phone.outlook_reply" -> {
                 val text = args.optString("text", args.optString("message", "")).trim()
                 if (text.isEmpty()) return "error: text kosong"
                 val res = java.util.concurrent.atomic.AtomicReference("")
@@ -863,7 +863,7 @@ class XiaozhiDevice(
                     res.set(if (st == 1) "ok: $msg" else "error: $msg")
                     latch.countDown()
                 }
-                ui.post { acc.gmailReply(text, done) }
+                ui.post { acc.outlookReply(text, done) }
                 latch.await(25, java.util.concurrent.TimeUnit.SECONDS)
                 val r = res.get()
                 return if (r.isEmpty()) "error: timeout mengirim balasan" else r
