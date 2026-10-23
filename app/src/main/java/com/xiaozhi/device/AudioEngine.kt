@@ -190,3 +190,4 @@ class AudioEngine(
         val r = sqrt(sum / n) / 32768.0
         return (r * 3.2).coerceIn(0.0, 1.0).toFloat()
     }
+}
