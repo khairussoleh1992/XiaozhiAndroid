@@ -17,7 +17,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Sintaks Kotlin DSL untuk membaca properti OTA_URL
-        val otaUrl = if (project.hasProperty("XIAOZHI_OTA_URL")) project.property("XIAOZHI_OTA_URL").toString() else ""
+        val otaUrl = (project.findProperty("XIAOZHI_OTA_URL") as String?) ?: "https://api.tenclass.net/xiaozhi/ota/"
         buildConfigField("String", "OTA_URL", "\"$otaUrl\"")
     }
 
