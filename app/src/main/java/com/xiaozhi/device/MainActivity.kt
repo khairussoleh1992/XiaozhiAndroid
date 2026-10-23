@@ -31,6 +31,8 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
 
     private lateinit var webView: WebView
     private var wakeLock: PowerManager.WakeLock? = null
+    @Suppress("DEPRECATION")
+    private var screenLock: PowerManager.WakeLock? = null
     private val permCode = 77
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -43,6 +45,11 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "Xiaozhi::BackgroundWakeLock"
+        )
+        @Suppress("DEPRECATION")
+        screenLock = powerManager.newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "Xiaozhi::VideoCallScreenLock"
         )
 
         webView.settings.apply {
@@ -91,7 +98,8 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
             runOnUiThread {
                 if (!hasMicPermission()) {
                     ActivityCompat.requestPermissions(
-                        this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA), permCode)
+                        this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA,
+                            Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permCode)
                 } else {
                     device?.stop()
                     connected = false
@@ -217,6 +225,9 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
     private fun startCallService() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         wakeLock?.let { if (!it.isHeld) it.acquire() }
+        // Layar tetap menyala selama panggilan aktif, MESKI user pindah ke
+        // home / aplikasi lain. Dilepas saat end call (stopCallService).
+        screenLock?.let { if (!it.isHeld) it.acquire() }
 
         val serviceIntent = Intent(this, CallForegroundService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -229,6 +240,7 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
     private fun stopCallService() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         wakeLock?.let { if (it.isHeld) it.release() }
+        screenLock?.let { if (it.isHeld) it.release() }
         stopService(Intent(this, CallForegroundService::class.java))
     }
 
