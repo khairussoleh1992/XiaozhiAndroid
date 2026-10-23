@@ -88,4 +88,3 @@ object LocationHelper {
             if (addr.isNotEmpty()) put("address", addr)
         }.toString()
     }
-}
