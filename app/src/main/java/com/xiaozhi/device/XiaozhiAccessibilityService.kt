@@ -18,7 +18,7 @@ import android.util.Log
 
 /**
  * Kontrol HP untuk AI: tap, swipe, baca layar, buka aplikasi (pintar),
- * serta otomasi WhatsApp (baca chat / kirim balasan) dan Gmail (baca /
+ * serta otomasi WhatsApp (baca chat / kirim balasan) dan Outlook (baca /
  * balas email).
  */
 class XiaozhiAccessibilityService : AccessibilityService() {
@@ -364,21 +364,21 @@ class XiaozhiAccessibilityService : AccessibilityService() {
         return ""
     }
 
-    // ---------------- Gmail ----------------
+    // ---------------- Outlook ----------------
 
-    private val GM = "com.google.android.gm"
+    private val OL = "com.microsoft.office.outlook"
 
-    fun gmailRead(onResult: (Int, String) -> Unit) {
-        if (!launchApp(GM)) { onResult(0, "Gmail tidak terpasang"); return }
-        later(2500) {
-            val txt = dumpScreenText(1800)
+    fun outlookRead(onResult: (Int, String) -> Unit) {
+        if (!launchApp(OL)) { onResult(0, "Outlook tidak terpasang"); return }
+        later(3200) {
+            val txt = dumpScreenText(2000)
             onResult(1, if (txt.isBlank()) "tidak ada teks terbaca di layar" else txt)
         }
     }
 
-    fun gmailReply(text: String, onResult: (Int, String) -> Unit) {
-        if (!launchApp(GM)) { onResult(0, "Gmail tidak terpasang"); return }
-        later(2200) {
+    fun outlookReply(text: String, onResult: (Int, String) -> Unit) {
+        if (!launchApp(OL)) { onResult(0, "Outlook tidak terpasang"); return }
+        later(3000) {
             val reply = findNode { n ->
                 val l = label(n).lowercase()
                 l == "reply" || l == "balas" || l.startsWith("reply") || l.startsWith("balas")
