@@ -26,6 +26,7 @@
   #vignette { position:absolute; inset:0; z-index:2; pointer-events:none;
     background: radial-gradient(ellipse at 50% 30%, transparent 40%, rgba(0,0,0,.55) 100%); }
 
+  #hud-canvas { position:absolute; inset:0; z-index:9; pointer-events:none; }
   #live2d-canvas { position:absolute; inset:0; z-index:10; }
   #particles { position:absolute; inset:0; z-index:12; pointer-events:none; }
   #selfcam { position:absolute; right:14px; top:78px; width:112px; aspect-ratio:3/4;
@@ -133,6 +134,7 @@
   </div>
   <div id="vignette"></div>
 
+  <canvas id="hud-canvas"></canvas>
   <canvas id="live2d-canvas"></canvas>
   <canvas id="particles"></canvas>
 
@@ -200,6 +202,10 @@
     <div class="panel glass">
       <h3>PENGATURAN</h3>
       <div class="set-row">
+        <div class="set-lbl">PILIH KARAKTER</div>
+        <div id="model-pick"></div>
+      </div>
+      <div class="set-row">
         <div class="set-lbl">URL MODEL LIVE2D (.model3.json / .model.json)</div>
         <input class="set-input" id="inp-model" placeholder="https://.../model.model3.json">
         <button class="pill-btn" style="margin-top:8px;" id="btn-apply-model">Muat Model</button>
@@ -232,8 +238,14 @@ var STATE = {
   chat: []
 };
 var DEFAULT_MODEL = "live2d/haru_ja/runtime/haru.model3.json";
+var MODELS = [
+  { label: "Haru",    url: "live2d/haru_ja/runtime/haru.model3.json" },
+  { label: "Knight",  url: "live2d/Knight/knight.model3.json" },
+  { label: "Nicole",  url: "live2d/Nicole/Nicole.model3.json" },
+  { label: "Cattiva", url: "live2d/Palworld_cattiva/palworld_cattiva.model3.json" }
+];
 var cfg = {
-  model: DEFAULT_MODEL,
+  model: localStorage.getItem("xzh_model") || DEFAULT_MODEL,
   zoom: parseFloat(localStorage.getItem("xzh_zoom2") || "1.2"),
   dy:   parseFloat(localStorage.getItem("xzh_dy2")   || "1.22")
 };
@@ -367,6 +379,131 @@ fitParticles(); window.addEventListener("resize", fitParticles);
   }
 })();
 
+/* ================= J.A.R.V.I.S-STYLE HUD ================= */
+var hudC = document.getElementById("hud-canvas"), hudX = hudC.getContext("2d");
+var hudDpr = Math.min(window.devicePixelRatio || 1, 1.5);
+function fitHud() { hudC.width = innerWidth * hudDpr; hudC.height = innerHeight * hudDpr; }
+fitHud(); window.addEventListener("resize", fitHud);
+
+var hudN = 72, hudLv = [];
+for (var _hi = 0; _hi < hudN; _hi++) hudLv.push(0);
+var hudData = [], hudDataNext = 0;
+function hudGenData() {
+  var W = innerWidth, H = innerHeight, msgs = [
+    "CORE : ONLINE", "PWR : 98%", "NET : WSS/OTA STABLE", "AUDIO : OPUS-16K",
+    "MEM : 3.2/12.0 GB", "GPS : LOCK", "THERMAL : NOMINAL", "AI-CORE : READY",
+    "SYS : KERNAL v12", "OPTIC : OK", "SECURE : ACTIVE", "HUD : ACTIVE"
+  ];
+  hudData = [];
+  var spots = [
+    [14, H * .13, 0], [14, H * .19, 0], [14, H * .60, 0],
+    [W - 14, H * .16, 1], [W - 14, H * .23, 1], [W - 14, H * .64, 1]
+  ];
+  for (var i = 0; i < spots.length; i++) {
+    hudData.push({ x: spots[i][0], y: spots[i][1], right: spots[i][2],
+      txt: msgs[(Math.random() * msgs.length) | 0] });
+  }
+}
+hudGenData();
+
+function hudDraw(ts) {
+  var W = hudC.width, H = hudC.height;
+  hudX.clearRect(0, 0, W, H);
+  var t = ts / 1000, d = hudDpr;
+  var dim = STATE.connected ? 1 : 0.55;
+  var cx = W / 2, cy = H * .44, R = Math.min(W, H) * .40;
+  var lvl = STATE.speaking ? STATE.ttsLevel : (STATE.listening ? STATE.micLevel : 0);
+  var col = STATE.thinking ? "167,139,250" : (STATE.speaking ? "251,191,36" : "56,189,248");
+  var spin = STATE.thinking ? 2.4 : 1;
+
+  hudX.globalAlpha = dim;
+  hudX.lineWidth = d;
+  hudX.strokeStyle = "rgba(" + col + ",.5)";
+  var b = 14 * d, s = 22 * d;
+  var corners = [[0,0],[1,0],[0,1],[1,1]];
+  for (var c = 0; c < 4; c++) {
+    var px = corners[c][0] * (W - 2 * b) + b, py = corners[c][1] * (H - 2 * b) + b;
+    hudX.beginPath();
+    hudX.moveTo(px + (corners[c][0] ? -s : s), py);
+    hudX.lineTo(px, py);
+    hudX.lineTo(px, py + (corners[c][1] ? -s : s));
+    hudX.stroke();
+  }
+
+  hudX.save(); hudX.translate(cx, cy); hudX.rotate(t * .12 * spin);
+  hudX.strokeStyle = "rgba(" + col + ",.34)";
+  hudX.setLineDash([6 * d, 10 * d]);
+  hudX.beginPath(); hudX.arc(0, 0, R, 0, Math.PI * 2); hudX.stroke();
+  hudX.setLineDash([]);
+  for (var k = 0; k < 60; k++) {
+    var a = k / 60 * Math.PI * 2;
+    var long = (k % 5 === 0);
+    var r1 = R * 1.03, r2 = R * 1.03 + (long ? 7 * d : 4 * d);
+    hudX.strokeStyle = "rgba(" + col + "," + (long ? .5 : .25) + ")";
+    hudX.beginPath();
+    hudX.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+    hudX.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+    hudX.stroke();
+  }
+  hudX.restore();
+
+  hudX.save(); hudX.translate(cx, cy); hudX.rotate(-t * .5 * spin);
+  hudX.strokeStyle = "rgba(" + col + ",.6)";
+  hudX.lineWidth = 2.5 * d;
+  for (var sg = 0; sg < 3; sg++) {
+    hudX.beginPath();
+    hudX.arc(0, 0, R * .82, sg * 2.094 + .12, sg * 2.094 + 1.2);
+    hudX.stroke();
+  }
+  hudX.restore();
+  hudX.lineWidth = d;
+
+  var r0 = R * .55;
+  for (var i2 = 0; i2 < hudN; i2++) {
+    var ang = i2 / hudN * Math.PI * 2;
+    var tgt = lvl * (.55 + .45 * Math.abs(Math.sin(i2 * 1.7 + t * 2.4)))
+            + ((STATE.listening || STATE.speaking) ? .06 : .02);
+    hudLv[i2] += (tgt - hudLv[i2]) * .3;
+    var bl = 5 * d + hudLv[i2] * R * .34;
+    hudX.strokeStyle = "rgba(" + col + "," + Math.min(1, .3 + hudLv[i2] * 2).toFixed(2) + ")";
+    hudX.beginPath();
+    hudX.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
+    hudX.lineTo(cx + Math.cos(ang) * (r0 + bl), cy + Math.sin(ang) * (r0 + bl));
+    hudX.stroke();
+  }
+
+  var pulse = .06 + lvl * .3 + .03 * Math.sin(t * 2);
+  var g = hudX.createRadialGradient(cx, cy, 0, cx, cy, R * .5);
+  g.addColorStop(0, "rgba(" + col + "," + (pulse * dim).toFixed(3) + ")");
+  g.addColorStop(.7, "rgba(" + col + "," + (pulse * .35 * dim).toFixed(3) + ")");
+  g.addColorStop(1, "rgba(" + col + ",0)");
+  hudX.fillStyle = g;
+  hudX.beginPath(); hudX.arc(cx, cy, R * .5, 0, Math.PI * 2); hudX.fill();
+
+  var sy = ((t * .11) % 1) * H;
+  var sc = hudX.createLinearGradient(0, sy - 40 * d, 0, sy);
+  sc.addColorStop(0, "rgba(" + col + ",0)");
+  sc.addColorStop(1, "rgba(" + col + ",.12)");
+  hudX.fillStyle = sc;
+  hudX.fillRect(0, sy - 40 * d, W, 40 * d);
+  hudX.fillStyle = "rgba(" + col + ",.18)";
+  hudX.fillRect(0, sy, W, 1.5 * d);
+
+  if (ts > hudDataNext) { hudGenData(); hudDataNext = ts + 2600; }
+  hudX.font = (8.5 * d) + "px monospace";
+  for (var j = 0; j < hudData.length; j++) {
+    var it = hudData[j];
+    hudX.textAlign = it.right ? "right" : "left";
+    hudX.fillStyle = "rgba(" + col + ",.55)";
+    hudX.fillText("> " + it.txt, it.x * d, it.y * d);
+  }
+  hudX.globalAlpha = 1;
+}
+(function hudLoop2(ts) {
+  requestAnimationFrame(hudLoop2);
+  try { hudDraw(ts || 0); } catch (e) {}
+})();
+/* =============== akhir HUD =============== */
 var wCanvas = document.getElementById("wave"), wCtx = wCanvas.getContext("2d"), wPhase = 0;
 function fitWave() { wCanvas.width = wCanvas.clientWidth * (window.devicePixelRatio || 1); wCanvas.height = wCanvas.clientHeight * (window.devicePixelRatio || 1); }
 fitWave(); window.addEventListener("resize", fitWave);
@@ -591,6 +728,27 @@ $("inp-dy").addEventListener("input", function () {
   cfg.dy = parseFloat(this.value); $("lbl-dy").textContent = cfg.dy.toFixed(2);
   localStorage.setItem("xzh_dy2", cfg.dy); layoutModel();
 });
+
+(function () {
+  var wrap = $("model-pick");
+  if (!wrap) return;
+  function refresh() {
+    wrap.innerHTML = "";
+    MODELS.forEach(function (m) {
+      var b = document.createElement("button");
+      b.className = "pill-btn";
+      b.style.margin = "0 6px 6px 0";
+      if (cfg.model === m.url) { b.style.borderColor = "#38bdf8"; b.style.background = "rgba(56,189,248,.25)"; }
+      b.textContent = m.label;
+      b.onclick = function () {
+        cfg.model = m.url; localStorage.setItem("xzh_model", m.url);
+        refresh(); loadModel(m.url);
+      };
+      wrap.appendChild(b);
+    });
+  }
+  refresh();
+})();
 
 bootLive2D();
 $("gate-device").textContent = "Device: -";
