@@ -341,3 +341,4 @@ class MainActivity : AppCompatActivity(), XiaozhiDevice.Listener {
         webView.destroy()
         super.onDestroy()
     }
+}
