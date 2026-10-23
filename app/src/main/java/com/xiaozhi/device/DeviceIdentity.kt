@@ -35,5 +35,4 @@ object DeviceIdentity {
             prefs.edit().putString("uuid", uuid).apply()
         }
         return uuid
-    }
 }
