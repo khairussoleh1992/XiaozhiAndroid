@@ -122,6 +122,33 @@ class XiaozhiDevice(
     private val autoMode = true
     @Volatile private var micMuted = false
 
+    // Watchdog TTS: kalau pesan "tts stop" dari server hilang, dulu app
+    // beku diam-diam (tidak merespon) sampai di-force close. Sekarang,
+    // kalau AI dianggap bicara tapi 25+ detik tidak ada audio, sesi
+    // didorong balik ke mode dengar otomatis.
+    private val ttsWatchdog = object : Runnable {
+        override fun run() {
+            if (speaking && sessionId != null) {
+                val idle = audio?.msSinceLastAudio() ?: 999999L
+                if (idle > 25000) {
+                    xzlog("watchdog: TTS macet ${idle}ms tanpa audio -> reset ke mode dengar")
+                    speaking = false
+                    thinking = false
+                    audio?.stopPlayback()
+                    uiSpeaking(false)
+                    uiThinking(false)
+                    if (!micMuted) reopenListen()
+                } else {
+                    scheduleTtsWatchdog()
+                }
+            }
+        }
+    }
+    private fun scheduleTtsWatchdog() {
+        ui.removeCallbacks(ttsWatchdog)
+        ui.postDelayed(ttsWatchdog, 30000)
+    }
+
     // ---- vision / kamera (MCP) ----
     @Volatile private var visionUrl: String? = null
     @Volatile private var visionToken = ""
@@ -369,6 +396,8 @@ class XiaozhiDevice(
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e("XiaozhiDevice", "WS fail: ${t.message} resp=${response?.code}")
                 xzlog("WS GAGAL: ${t.message} resp=${response?.code}")
+                speaking = false
+                thinking = false
                 audio?.stopAll()
                 ui.post { listener.onDisconnected(t.message ?: "connection failed") }
                 scheduleReconnect(g)
@@ -377,6 +406,8 @@ class XiaozhiDevice(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i("XiaozhiDevice", "WS closed: $code $reason")
                 xzlog("WS closed: $code $reason")
+                speaking = false
+                thinking = false
                 audio?.stopAll()
                 ui.post { listener.onDisconnected("closed: $reason") }
                 scheduleReconnect(g)
@@ -555,6 +586,49 @@ class XiaozhiDevice(
                 }
                 fun phEntry(nm: String, d: String, sch: JSONObject = emptySchema): JSONObject =
                     JSONObject().apply { put("name", nm); put("description", d); put("inputSchema", sch) }
+                val waReadSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().put("chat", JSONObject().apply {
+                        put("type", "string")
+                        put("description", "Optional: contact or chat name to open first via WhatsApp search. Default: the currently open chat or the chat list.")
+                    }))
+                }
+                val waReplySch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("chat", JSONObject().apply {
+                            put("type", "string")
+                            put("description", "Optional: contact or chat name to open first via WhatsApp search.")
+                        })
+                        put("text", JSONObject().apply {
+                            put("type", "string")
+                            put("description", "The message text to send.")
+                        })
+                    })
+                    put("required", org.json.JSONArray().put("text"))
+                }
+                val txtSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().put("text", JSONObject().apply {
+                        put("type", "string")
+                        put("description", "The text to type.")
+                    }))
+                    put("required", org.json.JSONArray().put("text"))
+                }
+                toolsArr.put(phEntry("self.phone.get_location",
+                    "Get the phone's current GPS location. Returns JSON: latitude, longitude, accuracy_m, provider, age_s, address (best effort). " +
+                    "Use when the user asks where they are, the weather, nearby places, their address, lokasi, posisi, alamat."))
+                toolsArr.put(phEntry("self.phone.whatsapp_read",
+                    "Open WhatsApp and read recent chat messages. Args: `chat` optional contact/chat name to open first via search. " +
+                    "Returns the visible conversation text with senders. Then use self.phone.whatsapp_reply to answer.", waReadSch))
+                toolsArr.put(phEntry("self.phone.whatsapp_reply",
+                    "Send a WhatsApp message. Args: `text` (required) the message to send; `chat` optional contact/chat name to open first. " +
+                    "Opens the chat, types the text and taps Send. IMPORTANT: only send what the user explicitly asked.", waReplySch))
+                toolsArr.put(phEntry("self.phone.gmail_read",
+                    "Open the Gmail app and read the latest inbox emails (sender, subject, snippet). Use when the user asks to check their email / surel / pesan masuk."))
+                toolsArr.put(phEntry("self.phone.gmail_reply",
+                    "Reply to the email currently open in Gmail. Args: `text` (required) the reply body. Taps Reply, types the text and taps Send. " +
+                    "IMPORTANT: only send what the user explicitly asked.", txtSch))
                 toolsArr.put(phEntry("self.phone.open_app",
                     "You are running ON the user's Android phone and you can control it. " +
                     "Open an app by label or package name, e.g. whatsapp, camera, settings, calculator.", appSch))
@@ -575,7 +649,7 @@ class XiaozhiDevice(
                 reply(JSONObject().apply {
                     put("tools", toolsArr)
                 })
-                xzlog("MCP tools/list dijawab: 10 tools, tanpa nextCursor")
+                xzlog("MCP tools/list dijawab: " + toolsArr.length() + " tools, tanpa nextCursor")
             }
             "tools/call" -> {
                 val name = payload.optJSONObject("params")?.optString("name") ?: ""
@@ -607,7 +681,7 @@ class XiaozhiDevice(
                         pout = try { phoneTool(name, pargs) } catch (e: Exception) { "error: " + e.message }
                         latchP.countDown()
                     }
-                    try { latchP.await(6, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) { }
+                    try { latchP.await(22, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) { }
                     if (pout.isEmpty()) pout = "error: timeout"
                     reply(JSONObject().apply {
                         put("content", org.json.JSONArray().put(JSONObject()
@@ -646,6 +720,9 @@ class XiaozhiDevice(
     /** Kontrol HP untuk AI: buka app, baca layar, tap, swipe, back, home */
     private fun phoneTool(name: String, args: org.json.JSONObject): String {
         fun num(k: String): Double = (args.opt(k)?.toString() ?: "").toDoubleOrNull() ?: -1.0
+        if (name == "self.phone.get_location") {
+            return try { LocationHelper.getLocation(appContext, 15000) } catch (e: Exception) { "error: " + e.message }
+        }
         if (name == "self.phone.open_app") {
             var target = args.optString("target", "")
             if (target.isEmpty()) target = args.optString("app", "")
@@ -655,15 +732,50 @@ class XiaozhiDevice(
             val pm = appContext.packageManager
             val launcher = android.content.Intent(android.content.Intent.ACTION_MAIN)
                 .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-            val list = pm.queryIntentActivities(launcher, 0)
-            val m = list.firstOrNull { it.activityInfo.packageName.equals(target, true) }
-                ?: list.firstOrNull { (it.loadLabel(pm)?.toString() ?: "").contains(target, true) }
-                ?: return "error: app not found: $target"
-            appContext.startActivity(android.content.Intent(android.content.Intent.ACTION_MAIN)
-                .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-                .setClassName(m.activityInfo.packageName, m.activityInfo.name)
-                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            return "ok: opened " + (m.loadLabel(pm) ?: target)
+            val apps = try { pm.queryIntentActivities(launcher, 0) } catch (_: Exception) { emptyList() }
+            val t = target.lowercase().replace(Regex("[^a-z0-9]"), "")
+            val cands = apps.mapNotNull { ri ->
+                val lbl = try { ri.loadLabel(pm)?.toString() } catch (_: Exception) { null }
+                    ?: ri.activityInfo.packageName
+                val nl = lbl.lowercase().replace(Regex("[^a-z0-9]"), "")
+                val pn = ri.activityInfo.packageName.lowercase()
+                val score = when {
+                    nl == t -> 100
+                    pn == t -> 95
+                    nl.startsWith(t) -> 80
+                    pn.contains(t) -> 60
+                    nl.contains(t) -> 60
+                    (t.length >= 3 && t.contains(nl)) -> 55
+                    else -> 0
+                }
+                if (score > 0) Triple(score, lbl, ri) else null
+            }.sortedWith(compareByDescending<Triple<Int, String, android.content.pm.ResolveInfo>> { it.first }
+                .thenBy { it.second.length })
+            val best = cands.firstOrNull()
+            if (best != null) {
+                try {
+                    appContext.startActivity(android.content.Intent(android.content.Intent.ACTION_MAIN)
+                        .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+                        .setClassName(best.third.activityInfo.packageName, best.third.activityInfo.name)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    return "ok: opened " + best.second
+                } catch (_: Exception) { }
+            }
+            // Fallback: biarkan aksesibilitas scan layar sendiri (halaman home,
+            // app drawer) kalau label tidak ketemu di PackageManager.
+            val svc = XiaozhiAccessibilityService.inst
+                ?: return "error: app not found: $target (aksesibilitas nonaktif)"
+            val res = java.util.concurrent.atomic.AtomicReference("")
+            val latch = java.util.concurrent.CountDownLatch(1)
+            ui.post {
+                svc.openAppSmart(target) { st, msg ->
+                    res.set(if (st == 1) "ok: opened $msg" else "error: app not found on screen: $msg")
+                    latch.countDown()
+                }
+            }
+            latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
+            val r = res.get()
+            return if (r.isEmpty()) "error: app not found: $target" else r
         }
         val acc = XiaozhiAccessibilityService.inst
             ?: return "error: phone control not enabled. Ask the user to enable: " +
@@ -702,6 +814,60 @@ class XiaozhiDevice(
                 android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)) "ok" else "error"
             "self.phone.home" -> return if (acc.globalAction(
                 android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)) "ok" else "error"
+            "self.phone.whatsapp_read" -> {
+                val chat = args.optString("chat", "").trim()
+                val res = java.util.concurrent.atomic.AtomicReference("")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                val done: (Int, String) -> Unit = { st, msg ->
+                    res.set(if (st == 1) msg else "error: $msg")
+                    latch.countDown()
+                }
+                ui.post { acc.whatsappRead(chat.ifEmpty { null }, done) }
+                latch.await(20, java.util.concurrent.TimeUnit.SECONDS)
+                val r = res.get()
+                return if (r.isEmpty()) "error: timeout membuka WhatsApp" else r
+            }
+            "self.phone.whatsapp_reply" -> {
+                val chat = args.optString("chat", "").trim()
+                val text = args.optString("text", args.optString("message", "")).trim()
+                if (text.isEmpty()) return "error: text kosong"
+                val res = java.util.concurrent.atomic.AtomicReference("")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                val done: (Int, String) -> Unit = { st, msg ->
+                    res.set(if (st == 1) "ok: $msg" else "error: $msg")
+                    latch.countDown()
+                }
+                ui.post { acc.whatsappReply(chat.ifEmpty { null }, text, done) }
+                latch.await(25, java.util.concurrent.TimeUnit.SECONDS)
+                val r = res.get()
+                return if (r.isEmpty()) "error: timeout mengirim pesan" else r
+            }
+            "self.phone.gmail_read" -> {
+                val res = java.util.concurrent.atomic.AtomicReference("")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                val done: (Int, String) -> Unit = { st, msg ->
+                    res.set(if (st == 1) msg else "error: $msg")
+                    latch.countDown()
+                }
+                ui.post { acc.gmailRead(done) }
+                latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
+                val r = res.get()
+                return if (r.isEmpty()) "error: timeout membuka Gmail" else r
+            }
+            "self.phone.gmail_reply" -> {
+                val text = args.optString("text", args.optString("message", "")).trim()
+                if (text.isEmpty()) return "error: text kosong"
+                val res = java.util.concurrent.atomic.AtomicReference("")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                val done: (Int, String) -> Unit = { st, msg ->
+                    res.set(if (st == 1) "ok: $msg" else "error: $msg")
+                    latch.countDown()
+                }
+                ui.post { acc.gmailReply(text, done) }
+                latch.await(25, java.util.concurrent.TimeUnit.SECONDS)
+                val r = res.get()
+                return if (r.isEmpty()) "error: timeout mengirim balasan" else r
+            }
         }
         return "error: unknown phone tool"
     }
@@ -840,8 +1006,10 @@ class XiaozhiDevice(
                         uiThinking(false)
                         audio?.startPlayback()
                         uiSpeaking(true)
+                        scheduleTtsWatchdog()
                     }
                     "stop" -> {
+                        ui.removeCallbacks(ttsWatchdog)
                         speaking = false
                         thinking = false
                         audio?.stopPlayback()
