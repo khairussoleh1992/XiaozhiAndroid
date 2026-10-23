@@ -631,7 +631,9 @@ class XiaozhiDevice(
                     "IMPORTANT: only send what the user explicitly asked.", txtSch))
                 toolsArr.put(phEntry("self.phone.open_app",
                     "You are running ON the user's Android phone and you can control it. " +
-                    "Open an app by label or package name, e.g. whatsapp, camera, settings, calculator.", appSch))
+                    "Open an app by label or package name, e.g. whatsapp, camera, settings, calculator, google maps. " +
+                    "ALWAYS use THIS tool to open an app instead of tapping icons with self.phone.tap. " +
+                    "It matches labels flexibly ('google maps' opens Maps) and reports only after the app is really open.", appSch))
                 toolsArr.put(phEntry("self.phone.screen_text",
                     "Read the current phone screen. Returns visible texts with positions [x,y]. " +
                     "Use before tapping to find coordinates.", emptySchema))
@@ -734,6 +736,7 @@ class XiaozhiDevice(
                 .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
             val apps = try { pm.queryIntentActivities(launcher, 0) } catch (_: Exception) { emptyList() }
             val t = target.lowercase().replace(Regex("[^a-z0-9]"), "")
+            val tWords = target.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 3 }
             val cands = apps.mapNotNull { ri ->
                 val lbl = try { ri.loadLabel(pm)?.toString() } catch (_: Exception) { null }
                     ?: ri.activityInfo.packageName
@@ -742,6 +745,7 @@ class XiaozhiDevice(
                 val score = when {
                     nl == t -> 100
                     pn == t -> 95
+                    tWords.contains(nl) -> 88   // "google maps" -> label "Maps"
                     nl.startsWith(t) -> 80
                     pn.contains(t) -> 60
                     nl.contains(t) -> 60
