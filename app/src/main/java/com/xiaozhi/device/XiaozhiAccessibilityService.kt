@@ -162,6 +162,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val apps = try { pm.queryIntentActivities(launcher, 0) } catch (_: Exception) { emptyList() }
         val t = norm(targetName)
+        val tWords = targetName.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 3 }
         val cands = apps.mapNotNull { ri ->
             val lbl = try { ri.loadLabel(pm)?.toString() } catch (_: Exception) { null }
                 ?: ri.activityInfo.packageName
@@ -170,6 +171,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
             val score = when {
                 nl == t -> 100
                 pn == t -> 95
+                tWords.contains(nl) -> 88   // "google maps" -> label "Maps"
                 nl.startsWith(t) -> 80
                 pn.contains(t) -> 60
                 nl.contains(t) -> 60
@@ -203,6 +205,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
         val t = norm(targetName)
         var bestNode: AccessibilityNodeInfo? = null
         var bestScore = 0
+        var bestArea = 0
         walk(root) { n ->
             val l = label(n)
             if (l.isEmpty() || l.length > 40) return@walk
@@ -213,19 +216,25 @@ class XiaozhiAccessibilityService : AccessibilityService() {
             else if (nl.startsWith(t)) sc = 70
             else if (nl.contains(t)) sc = 50
             else if (t.length >= 3 && t.contains(nl)) sc = 45
-            if (sc > bestScore) {
+            if (sc > 0) {
                 val clickable = n.isClickable || n.parent?.isClickable == true
-                if (clickable) { bestScore = sc; bestNode = n }
+                if (clickable) {
+                    val r = Rect()
+                    n.getBoundsInScreen(r)
+                    val area = maxOf(1, r.width() * r.height())
+                    // skor dulu, lalu node TERBESAR: ikon kecil di preview
+                    // folder jangan diklik duluan (itu cuma membuka folder)
+                    if (sc > bestScore || (sc == bestScore && area > bestArea)) {
+                        bestScore = sc; bestArea = area; bestNode = n
+                    }
+                }
             }
         }
         val found = bestNode
         if (found != null) {
             val target = if (found.isClickable) found else found.parent
             if (target != null) {
-                val lbl = label(found)
-                clickNode(target) { ok ->
-                    if (ok) onResult(1, lbl) else onResult(0, "Gagal klik")
-                }
+                clickAndVerify(target, targetName, 0, onResult)
                 return
             }
         }
@@ -251,6 +260,47 @@ class XiaozhiAccessibilityService : AccessibilityService() {
             }
         } else {
             onResult(0, targetName)
+        }
+    }
+
+    /**
+     * Klik ikon lalu PASTIKAN benar-benar ada aplikasi terbuka (bukan cuma
+     * folder yang kebuka). Kalau masih di launcher, kemungkinan yang tereklik
+     * tadi adalah folder -> isi foldernya kini terlihat -> scan ulang dan
+     * klik lagi (maksimal 2 tingkat).
+     */
+    private fun clickAndVerify(node: AccessibilityNodeInfo, targetName: String, depth: Int, onResult: (Int, String) -> Unit) {
+        val before = rootInActiveWindow?.packageName
+        clickNode(node) { ok ->
+            if (!ok) { onResult(0, "Gagal klik"); return@clickNode }
+            later(1800) {
+                val after = rootInActiveWindow?.packageName
+                if (after != null && after != before) {
+                    onResult(1, targetName)
+                    return@later
+                }
+                if (depth >= 2) { onResult(0, targetName); return@later }
+                val t = norm(targetName)
+                val root = rootInActiveWindow
+                var pick: AccessibilityNodeInfo? = null
+                if (root != null) {
+                    walk(root) { n ->
+                        if (pick != null) return@walk
+                        val l = label(n)
+                        val nl = norm(l)
+                        if (nl.isNotEmpty() && nl.length <= 40 &&
+                            (nl == t || nl.startsWith(t) || nl.contains(t)) &&
+                            (n.isClickable || n.parent?.isClickable == true)) {
+                            pick = n
+                        }
+                    }
+                }
+                val node2 = pick
+                if (node2 == null) { onResult(0, targetName); return@later }
+                val tgt2 = if (node2.isClickable) node2 else node2.parent
+                if (tgt2 == null) { onResult(0, targetName); return@later }
+                clickAndVerify(tgt2, targetName, depth + 1, onResult)
+            }
         }
     }
 
