@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.os.SystemClock
 import kotlin.math.sqrt
 import org.concentus.OpusApplication
 import org.concentus.OpusDecoder
@@ -40,6 +41,7 @@ class AudioEngine(
     private var track: AudioTrack? = null
     @Volatile private var micRunning = false
     private var micThread: Thread? = null
+    @Volatile private var lastAudioAt = 0L
 
     @SuppressLint("MissingPermission")
     fun startMic() {
@@ -49,37 +51,72 @@ class AudioEngine(
             val enc = OpusEncoder(MIC_RATE, 1, OpusApplication.OPUS_APPLICATION_VOIP)
             try { enc.bitrate = 32000 } catch (_: Exception) { }
             encoder = enc
-            val minBuf = AudioRecord.getMinBufferSize(
-                MIC_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            val bufSize = maxOf(minBuf * 2, FRAME_SAMPLES * 4)
-            val rec = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                MIC_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, bufSize)
-            record = rec
-            rec.startRecording()
-            val pcm = ShortArray(FRAME_SAMPLES)
-            val out = ByteArray(1024)
+            // Loop luar: kalau AudioRecord mati diam-diam (audio focus hilang,
+            // headset dicabut, dsb.) mic dibuat ulang otomatis, bukan berhenti
+            // selamanya. Ini salah satu penyebab app "tidak merespon" dulu.
             while (micRunning) {
-                var got = 0
-                while (got < FRAME_SAMPLES && micRunning) {
-                    val n = rec.read(pcm, got, FRAME_SAMPLES - got)
-                    if (n <= 0) break
-                    got += n
+                val rec = try { createRecorder() } catch (_: Exception) { null }
+                if (rec == null || rec.state != AudioRecord.STATE_INITIALIZED) {
+                    try { rec?.release() } catch (_: Exception) { }
+                    record = null
+                    Thread.sleep(1000)
+                    continue
                 }
-                if (got < FRAME_SAMPLES) break
-                try {
-                    onMicLevel(rms(pcm, FRAME_SAMPLES))
-                    val len = enc.encode(pcm, 0, FRAME_SAMPLES, out, 0, out.size)
-                    if (len > 0) onMicFrame(out.copyOf(len))
-                } catch (_: Exception) { }
+                record = rec
+                try { rec.startRecording() } catch (_: Exception) {
+                    try { rec.release() } catch (_: Exception) { }
+                    record = null
+                    Thread.sleep(1000)
+                    continue
+                }
+                val pcm = ShortArray(FRAME_SAMPLES)
+                val out = ByteArray(1024)
+                var badFrames = 0
+                while (micRunning) {
+                    var got = 0
+                    var emptyReads = 0
+                    while (got < FRAME_SAMPLES && micRunning) {
+                        val n = rec.read(pcm, got, FRAME_SAMPLES - got)
+                        if (n > 0) { got += n; emptyReads = 0 }
+                        else {
+                            emptyReads++
+                            if (emptyReads > 30) break
+                            Thread.sleep(10)
+                        }
+                    }
+                    if (!micRunning) break
+                    if (got < FRAME_SAMPLES) {
+                        // read mentok: frame ini diulang; kalau terus kosong
+                        // 3x berturut-turut, AudioRecord dianggap mati.
+                        badFrames++
+                        if (badFrames >= 3) break
+                        continue
+                    }
+                    badFrames = 0
+                    try {
+                        onMicLevel(rms(pcm, FRAME_SAMPLES))
+                        val len = enc.encode(pcm, 0, FRAME_SAMPLES, out, 0, out.size)
+                        if (len > 0) onMicFrame(out.copyOf(len))
+                    } catch (_: Exception) { }
+                }
+                try { rec.stop() } catch (_: Exception) { }
+                rec.release()
+                record = null
+                if (micRunning) Thread.sleep(700)
             }
-            try { rec.stop() } catch (_: Exception) { }
-            rec.release()
-            record = null
             encoder = null
             micThread = null
         }
+    }
+
+    private fun createRecorder(): AudioRecord {
+        val minBuf = AudioRecord.getMinBufferSize(
+            MIC_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val bufSize = maxOf(minBuf * 2, FRAME_SAMPLES * 4)
+        return AudioRecord(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MIC_RATE, AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT, bufSize)
     }
 
     fun stopMic() {
@@ -98,6 +135,7 @@ class AudioEngine(
             AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
             maxOf(minBuf * 2, serverRate), AudioTrack.MODE_STREAM)
         tr.play()
+        lastAudioAt = SystemClock.elapsedRealtime()
         track = tr
     }
 
@@ -110,6 +148,7 @@ class AudioEngine(
             val out = ShortArray(frameSize * 2)
             val n = dec.decode(bytes, 0, bytes.size, out, 0, frameSize, false)
             if (n > 0) {
+                lastAudioAt = SystemClock.elapsedRealtime()
                 onTtsLevel(rms(out, n))
                 tr.write(out, 0, n)
             }
@@ -131,6 +170,13 @@ class AudioEngine(
     fun stopAll() {
         stopMic()
         stopPlayback()
+    }
+
+    /** Sudah berapa ms sejak frame TTS terakhir sampai ke speaker.
+     *  Dipakai watchdog XiaozhiDevice untuk mendeteksi TTS yang macet. */
+    fun msSinceLastAudio(): Long {
+        if (track == null) return 999999L
+        return SystemClock.elapsedRealtime() - lastAudioAt
     }
 
     /** Level RMS 0..1 dari buffer PCM 16-bit */
