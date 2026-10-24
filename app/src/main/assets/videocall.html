@@ -314,6 +314,7 @@ async function loadModel(url) {
     app.stage.addChild(model);
     layoutModel();
     bootStatus("Karakter siap");
+    _wmIdx = null; hideWatermarks();
     document.body.classList.add("model-ready");
     try { model.motion("Idle"); } catch (e) {}
     var _t0 = performance.now(), _nextBlink = _t0 + 2500, _blinkT = -1;
@@ -322,6 +323,7 @@ async function loadModel(url) {
       try {
         var core = model.internalModel.core;
         if (!core || !core.setParameterValueById) return;
+        hideWatermarks();
         var t = (performance.now() - _t0) / 1000;
         var set = function (id, v) { try { core.setParameterValueById(id, v); } catch (e) {} };
         // napas + goyang halus (idle hidup), hanya jika model punya parameternya
@@ -357,6 +359,32 @@ async function loadModel(url) {
     model = null;
     bootFail("model gagal dimuat (" + (e && e.message ? e.message : e) + ")");
   }
+}
+
+
+var _wmIdx = null;
+function hideWatermarks() {
+  if (!model) return;
+  try {
+    var core = model.internalModel.core;
+    if (!core) return;
+    var raw = core._model;
+    if (_wmIdx === null && raw && raw.parts && raw.parts.ids) {
+      _wmIdx = [];
+      for (var i = 0; i < raw.parts.ids.length; i++) {
+        var id = raw.parts.ids[i];
+        var s = "";
+        try { s = (id && (id.utf8 || (id.getString ? id.getString() : ""))) || ""; } catch (e) { s = ""; }
+        if (/watermark|水印/i.test(String(s))) _wmIdx.push(i);
+      }
+    }
+    if (_wmIdx && raw && raw.parts && raw.parts.opacities) {
+      for (var k = 0; k < _wmIdx.length; k++) raw.parts.opacities[_wmIdx[k]] = 0;
+      for (var k2 = 0; k2 < _wmIdx.length; k2++) {
+        try { core.setPartOpacityById && core.setPartOpacityById(String(raw.parts.ids[_wmIdx[k2]].utf8 || ""), 0); } catch (e) {}
+      }
+    }
+  } catch (e) {}
 }
 
 function layoutModel() {
