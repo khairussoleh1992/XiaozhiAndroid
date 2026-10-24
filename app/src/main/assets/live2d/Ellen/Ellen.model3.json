@@ -1,0 +1,70 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "Ellen.moc3",
+    "Textures": [
+      "Ellen.2048/texture_00.png",
+      "Ellen.2048/texture_01.png",
+      "Ellen.2048/texture_02.png"
+    ],
+    "Physics": "Ellen.physics3.json",
+    "DisplayInfo": "Ellen.cdi3.json",
+    "Expressions": [
+      {
+        "Name": "black",
+        "File": "expressions/black.exp3.json"
+      },
+      {
+        "Name": "red",
+        "File": "expressions/red.exp3.json"
+      },
+      {
+        "Name": "shock",
+        "File": "expressions/shock.exp3.json"
+      },
+      {
+        "Name": "shou",
+        "File": "expressions/shou.exp3.json"
+      },
+      {
+        "Name": "shuiyin",
+        "File": "expressions/shuiyin.exp3.json"
+      },
+      {
+        "Name": "tang",
+        "File": "expressions/tang.exp3.json"
+      }
+    ],
+    "Motions": {
+      "Scene": [
+        {
+          "File": "motions/idle.motion3.json"
+        },
+        {
+          "File": "motions/idle2.motion3.json"
+        }
+      ]
+    }
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": [
+        "Param13",
+        "Param14",
+        "ParamEyeLOpen",
+        "ParamEyeROpen"
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": [
+        "ParamMouthForm",
+        "ParamMouthOpenY"
+      ]
+    }
+  ],
+  "HitAreas": []
+}
