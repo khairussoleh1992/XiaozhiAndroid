@@ -584,6 +584,50 @@ class XiaozhiDevice(
                     put("required", org.json.JSONArray().put("start_x").put("start_y")
                         .put("end_x").put("end_y"))
                 }
+                val dirSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().put("direction", JSONObject().apply {
+                        put("type", "string")
+                        put("description", "down / up / left / right (or bawah/atas/kiri/kanan). down = see more content below (e.g. next Reel).")
+                    }))
+                    put("required", org.json.JSONArray().put("direction"))
+                }
+                val destSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().put("destination", JSONObject().apply {
+                        put("type", "string")
+                        put("description", "Place name or address, e.g. 'kantor jakarta' or 'Jl. Sudirman 10'")
+                    }))
+                    put("required", org.json.JSONArray().put("destination"))
+                }
+                val platformSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().put("platform", JSONObject().apply {
+                        put("type", "string")
+                        put("description", "instagram (default) or facebook")
+                    }))
+                }
+                val olReadSch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().put("from", JSONObject().apply {
+                        put("type", "string")
+                        put("description", "Optional: sender name or subject to open a specific email from the inbox, e.g. 'Budi'. Default: read the inbox list."
+                    }))
+                }
+                val olReplySch = JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("text", JSONObject().apply {
+                            put("type", "string")
+                            put("description", "The reply body text to send.")
+                        })
+                        put("from", JSONObject().apply {
+                            put("type", "string")
+                            put("description", "Optional: sender/subject of the email to open and reply to first, e.g. 'Budi'.")
+                        })
+                    })
+                    put("required", org.json.JSONArray().put("text"))
+                }
                 fun phEntry(nm: String, d: String, sch: JSONObject = emptySchema): JSONObject =
                     JSONObject().apply { put("name", nm); put("description", d); put("inputSchema", sch) }
                 val waReadSch = JSONObject().apply {
@@ -625,10 +669,12 @@ class XiaozhiDevice(
                     "Send a WhatsApp message. Args: `text` (required) the message to send; `chat` optional contact/chat name to open first. " +
                     "Opens the chat, types the text and taps Send. IMPORTANT: only send what the user explicitly asked.", waReplySch))
                 toolsArr.put(phEntry("self.phone.outlook_read",
-                    "Open the Microsoft Outlook app (the user's email app) and read the latest inbox emails (sender, subject, snippet). Use when the user asks to check their email / surel / pesan masuk."))
+                    "Open the Microsoft Outlook app (the user's email app) and read emails. " +
+                    "Args: `from` optional sender/subject, e.g. 'Budi' -> opens that specific email. " +
+                    "Use when the user asks to check their email / surel / pesan masuk / baca email dari X.", olReadSch))
                 toolsArr.put(phEntry("self.phone.outlook_reply",
-                    "Reply to the email currently open in Outlook. Args: `text` (required) the reply body. Taps Reply, types the text and taps Send. " +
-                    "IMPORTANT: only send what the user explicitly asked.", txtSch))
+                    "Reply to an email in Outlook. Args: `text` (required) the reply body; `from` optional sender/subject to open first (e.g. reply to Budi). " +
+                    "Taps Reply, types the text and taps Send. IMPORTANT: only send what the user explicitly asked.", olReplySch))
                 toolsArr.put(phEntry("self.phone.open_app",
                     "You are running ON the user's Android phone and you can control it. " +
                     "Open an app by label or package name, e.g. whatsapp, camera, settings, calculator, google maps. " +
@@ -647,6 +693,24 @@ class XiaozhiDevice(
                     "Press the phone BACK button.", emptySchema))
                 toolsArr.put(phEntry("self.phone.home",
                     "Press the phone HOME button.", emptySchema))
+                toolsArr.put(phEntry("self.phone.tap_text",
+                    "Click an element on screen by its visible text or label, e.g. tap_text 'Balas', 'Oke', 'Kirim'. " +
+                    "Prefer this over self.phone.tap when the target has a visible label. " +
+                    "If it reports not found, use screen_text to look for what the label actually says.", txtSch))
+                toolsArr.put(phEntry("self.phone.scroll",
+                    "Scroll the screen: down / up / left / right (bawah/atas/kiri/kanan). " +
+                    "down = see more content below. Works in every app: feeds, chats, Reels (down = next video). " +
+                    "Use for 'geser ke bawah', 'scroll', 'lanjutkan'.", dirSch))
+                toolsArr.put(phEntry("self.phone.type_text",
+                    "Type text into the focused / only editable field on screen (search box, chat box, form). " +
+                    "Use after opening a search field, before tapping a result.", txtSch))
+                toolsArr.put(phEntry("self.phone.maps_route",
+                    "Open Google Maps navigation to a destination. Args: `destination` (required) place name or address. " +
+                    "Use when the user asks for a route / rute / arah ke / navigasi ke a place.", destSch))
+                toolsArr.put(phEntry("self.phone.open_reels",
+                    "Open the Reels tab in Instagram (default) or Facebook. Args: `platform` optional 'instagram' or 'facebook'. " +
+                    "After opening, use self.phone.scroll down for the next video / up for the previous. " +
+                    "Use for 'buka reels', 'tonton reels', 'buka reels facebook'.", platformSch))
                 // JANGAN kirim nextCursor kosong: server mengira masih ada
                 // halaman berikutnya lalu mengulang tools/list tanpa henti
                 reply(JSONObject().apply {
@@ -767,10 +831,62 @@ class XiaozhiDevice(
             val r = res.get()
             return if (r.isEmpty()) "error: app not found: $target" else r
         }
+        if (name == "self.phone.maps_route") {
+            val dest = args.optString("destination").trim()
+            if (dest.isEmpty()) return "error: destination kosong"
+            return try {
+                val pm = appContext.packageManager
+                if (pm.getLaunchIntentForPackage("com.google.android.apps.maps") == null)
+                    return "error: Google Maps tidak terpasang"
+                val uri = android.net.Uri.parse("google.navigation:q=" + android.net.Uri.encode(dest))
+                val i = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                appContext.startActivity(i)
+                "ok: rute ke $dest dibuka di Google Maps"
+            } catch (e: Exception) { "error: " + (e.message ?: "gagal membuka Maps") }
+        }
         val acc = XiaozhiAccessibilityService.inst
             ?: return "error: phone control not enabled. Ask the user to enable: " +
                 "Settings > Accessibility > Xiaozhi Control, then try again"
         when (name) {
+            "self.phone.tap_text" -> {
+                val text = args.optString("text").trim()
+                if (text.isEmpty()) return "error: text kosong"
+                val res = java.util.concurrent.atomic.AtomicReference("")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                ui.post { acc.tapText(text) { st, msg -> res.set(if (st == 1) "ok: $msg" else "error: $msg"); latch.countDown() } }
+                latch.await(6, java.util.concurrent.TimeUnit.SECONDS)
+                val r = res.get()
+                return if (r.isEmpty()) "error: timeout" else r
+            }
+            "self.phone.scroll" -> {
+                val dir = args.optString("direction", "down").trim()
+                val res = java.util.concurrent.atomic.AtomicReference("")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                ui.post { acc.scrollDir(dir) { st, msg -> res.set(if (st == 1) "ok: $msg" else "error: $msg"); latch.countDown() } }
+                latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                val r = res.get()
+                return if (r.isEmpty()) "error: timeout" else r
+            }
+            "self.phone.type_text" -> {
+                val text = args.optString("text").trim()
+                if (text.isEmpty()) return "error: text kosong"
+                val res = java.util.concurrent.atomic.AtomicReference("")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                ui.post { acc.typeGeneric(text) { st, msg -> res.set(if (st == 1) "ok: $msg" else "error: $msg"); latch.countDown() } }
+                latch.await(6, java.util.concurrent.TimeUnit.SECONDS)
+                val r = res.get()
+                return if (r.isEmpty()) "error: timeout" else r
+            }
+            "self.phone.open_reels" -> {
+                val platform = args.optString("platform", "instagram").trim().ifEmpty { "instagram" }
+                val res = java.util.concurrent.atomic.AtomicReference("")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                ui.post { acc.openReels(platform) { st, msg -> res.set(if (st == 1) "ok: $msg" else "error: $msg"); latch.countDown() } }
+                latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
+                val r = res.get()
+                return if (r.isEmpty()) "error: timeout membuka Reels" else r
+            }
             "self.phone.screen_text" -> {
                 val t = acc.dumpScreenText()
                 return if (t.isEmpty()) "screen text empty or not readable" else t
@@ -839,7 +955,8 @@ class XiaozhiDevice(
                     res.set(if (st == 1) msg else "error: $msg")
                     latch.countDown()
                 }
-                ui.post { acc.outlookRead(done) }
+                val oq = args.optString("from", args.optString("query", "")).trim()
+                ui.post { acc.outlookRead(oq.ifEmpty { null }, done) }
                 latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
                 val r = res.get()
                 return if (r.isEmpty()) "error: timeout membuka Outlook" else r
@@ -853,7 +970,8 @@ class XiaozhiDevice(
                     res.set(if (st == 1) "ok: $msg" else "error: $msg")
                     latch.countDown()
                 }
-                ui.post { acc.outlookReply(text, done) }
+                val oq = args.optString("from", args.optString("query", "")).trim()
+                ui.post { acc.outlookReply(oq.ifEmpty { null }, text, done) }
                 latch.await(25, java.util.concurrent.TimeUnit.SECONDS)
                 val r = res.get()
                 return if (r.isEmpty()) "error: timeout mengirim balasan" else r

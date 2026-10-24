@@ -418,12 +418,108 @@ class XiaozhiAccessibilityService : AccessibilityService() {
 
     // ---------------- WhatsApp ----------------
 
+    private val IG = "com.instagram.android"
+    private val FB = "com.facebook.katana"
     private val WA = "com.whatsapp"
 
     /**
      * Baca WhatsApp. chat != null -> buka chat itu lewat pencarian.
      * Return: teks percakapan / daftar chat yang terlihat.
      */
+    // ---------------- Kontrol umum ----------------
+    /** Buka tab Reels di Instagram (default) atau Facebook */
+    fun openReels(platform: String, onResult: (Int, String) -> Unit) {
+        val isFb = platform.lowercase().startsWith("f")
+        val pkg = if (isFb) FB else IG
+        val appNm = if (isFb) "Facebook" else "Instagram"
+        if (!launchApp(pkg)) { onResult(0, "$appNm tidak terpasang"); return }
+        later(3500) {
+            val nq = "reels"
+            var best: AccessibilityNodeInfo? = null
+            var bestScore = -1
+            val root = rootInActiveWindow
+            if (root != null) {
+                walk(root) { n ->
+                    val l = label(n).lowercase()
+                    val d = (n.contentDescription?.toString() ?: "").lowercase()
+                    if (l == nq || d == nq || l.startsWith(nq) || d.startsWith(nq)) {
+                        val score = (if (l == nq || d == nq) 3 else 2) + (if (n.isClickable) 1 else 0)
+                        if (score > bestScore) { bestScore = score; best = n }
+                    }
+                }
+            }
+            val node = best
+            if (node == null) { onResult(0, "tab Reels tidak ditemukan di layar $appNm"); return@later }
+            clickNode(node) { ok ->
+                if (ok) onResult(1, "Reels terbuka di $appNm. Gunakan scroll down untuk video berikutnya, up untuk sebelumnya.")
+                else onResult(0, "gagal membuka Reels")
+            }
+        }
+    }
+
+
+
+    /** Klik elemen di layar berdasarkan teksnya */
+    fun tapText(text: String, onResult: (Int, String) -> Unit) {
+        val q = norm(text)
+        if (q.isEmpty()) { onResult(0, "teks kosong"); return }
+        val root = rootInActiveWindow
+        if (root == null) { onResult(0, "layar tidak terbaca"); return }
+        var best: AccessibilityNodeInfo? = null
+        var bestScore = -1
+        walk(root) { n ->
+            val l = norm(label(n))
+            val d = norm(n.contentDescription?.toString() ?: "")
+            if ((l.isNotEmpty() && l.contains(q)) || (d.isNotEmpty() && d.contains(q))) {
+                val score = (if (l == q) 3 else if (l.isNotEmpty() && l.contains(q)) 2 else 1) +
+                    (if (n.isClickable) 1 else 0)
+                if (score > bestScore) { bestScore = score; best = n }
+            }
+        }
+        val node = best
+        if (node == null) { onResult(0, "teks '$text' tidak ada di layar"); return }
+        var target: AccessibilityNodeInfo? = node
+        var hops = 0
+        while (target != null && !target.isClickable && hops < 4) {
+            target = target.parent; hops++
+        }
+        val t = target ?: node
+        val r = Rect()
+        t.getBoundsInScreen(r)
+        if (r.width() < 2 && r.height() < 2) { onResult(0, "posisi teks tidak diketahui"); return }
+        tapXY(r.exactCenterX(), r.exactCenterY()) { ok ->
+            onResult(if (ok) 1 else 0, if (ok) "diklik: $text" else "gagal klik: $text")
+        }
+    }
+
+    /** Gulir layar ke arah tertentu */
+    fun scrollDir(direction: String, onResult: (Int, String) -> Unit) {
+        val d = direction.lowercase().trim()
+        val w = resources.displayMetrics.widthPixels
+        val h = resources.displayMetrics.heightPixels
+        val cx = w / 2f; val cy = h / 2f
+        val vy = h * 0.30f; val vx = w * 0.30f
+        var sx = cx; var sy = cy; var ex = cx; var ey = cy
+        when (d) {
+            "down", "bawah" -> { sy = cy + vy / 2; ey = cy - vy / 2 }
+            "up", "atas" -> { sy = cy - vy / 2; ey = cy + vy / 2 }
+            "right", "kanan" -> { sx = cx + vx / 2; ex = cx - vx / 2 }
+            "left", "kiri" -> { sx = cx - vx / 2; ex = cx + vx / 2 }
+            else -> { onResult(0, "arah tidak dikenal: $direction"); return }
+        }
+        swipeXY(sx, sy, ex, ey, 320) { ok ->
+            onResult(if (ok) 1 else 0, if (ok) "layar digulir $d" else "gagal menggulir")
+        }
+    }
+
+    /** Ketik teks ke kolom editable di layar */
+    fun typeGeneric(text: String, onResult: (Int, String) -> Unit) {
+        val edit = findNode { it.isEditable }
+        if (edit == null) { onResult(0, "tidak ada kolom ketik di layar"); return }
+        if (!typeText(edit, text)) { onResult(0, "gagal mengetik"); return }
+        later(300) { onResult(1, "tertulis: $text") }
+    }
+
     fun whatsappRead(chat: String?, onResult: (Int, String) -> Unit) {
         waOpen(chat) { ok, msg ->
             if (!ok) { onResult(0, msg); return@waOpen }
@@ -530,45 +626,84 @@ class XiaozhiAccessibilityService : AccessibilityService() {
 
     private val OL = "com.microsoft.office.outlook"
 
-    fun outlookRead(onResult: (Int, String) -> Unit) {
+    fun outlookRead(query: String?, onResult: (Int, String) -> Unit) {
         if (!launchApp(OL)) { onResult(0, "Outlook tidak terpasang"); return }
         later(3200) {
-            val txt = dumpScreenText(2000)
-            onResult(1, if (txt.isBlank()) "tidak ada teks terbaca di layar" else txt)
+            if (query.isNullOrBlank()) {
+                val txt = dumpScreenText(2000)
+                onResult(1, if (txt.isBlank()) "tidak ada teks terbaca di layar" else txt)
+            } else {
+                olOpenEmail(query) { ok, msg ->
+                    if (!ok) { onResult(0, msg); return@olOpenEmail }
+                    later(1600) {
+                        val txt = dumpScreenText(2200)
+                        onResult(1, if (txt.isBlank()) "email terbuka tapi teksnya tidak terbaca" else txt)
+                    }
+                }
+            }
         }
     }
 
-    fun outlookReply(text: String, onResult: (Int, String) -> Unit) {
+    fun outlookReply(query: String?, text: String, onResult: (Int, String) -> Unit) {
         if (!launchApp(OL)) { onResult(0, "Outlook tidak terpasang"); return }
         later(3000) {
-            val reply = findNode { n ->
-                val l = label(n).lowercase()
-                l == "reply" || l == "balas" || l.startsWith("reply") || l.startsWith("balas")
+            if (query.isNullOrBlank()) { olReplyFlow(text, onResult); return@later }
+            olOpenEmail(query) { ok, msg ->
+                if (!ok) { onResult(0, msg); return@olOpenEmail }
+                later(1600) { olReplyFlow(text, onResult) }
             }
-            if (reply == null) {
-                onResult(0, "tombol balas tidak ditemukan (buka emailnya dulu)")
-                return@later
-            }
-            clickNode(reply) { _ ->
-                later(1600) {
-                    val edit = findNode { it.isEditable }
-                    if (edit == null || !typeText(edit, text)) {
-                        onResult(0, "gagal menulis balasan")
-                        return@later
+        }
+    }
+
+    /** Cari email di inbox berdasarkan pengirim/subjek lalu buka (gulir sampai 5 layar) */
+    private fun olOpenEmail(query: String, done: (Boolean, String) -> Unit) {
+        val nq = norm(query)
+        if (nq.isEmpty()) { done(false, "kata kunci kosong"); return }
+        fun tryPage(attempt: Int) {
+            val root = rootInActiveWindow
+            var pick: AccessibilityNodeInfo? = null
+            if (root != null) {
+                walk(root) { n ->
+                    if (pick == null && n.isClickable && !n.isEditable) {
+                        val l = norm(label(n))
+                        if (l.length > nq.length + 2 && l.contains(nq)) pick = n
                     }
-                    later(600) {
-                        val send = findNode { n ->
-                            val l = label(n).lowercase()
-                            l == "send" || l == "kirim" || l.startsWith("send") || l.startsWith("kirim")
-                        }
-                        if (send == null) {
-                            onResult(0, "balasan sudah tertulis tapi tombol kirim tidak ketemu")
-                            return@later
-                        }
-                        clickNode(send) { ok ->
-                            if (ok) onResult(1, "balasan email terkirim")
-                            else onResult(0, "gagal klik kirim")
-                        }
+                }
+            }
+            val node = pick
+            if (node != null) {
+                clickNode(node) { ok -> done(ok, if (ok) "email terbuka" else "gagal membuka email") }
+            } else if (attempt < 5) {
+                val w = resources.displayMetrics.widthPixels
+                val h = resources.displayMetrics.heightPixels
+                swipeXY(w / 2f, h * 0.6f, w / 2f, h * 0.3f, 350) { _ ->
+                    later(900) { tryPage(attempt + 1) }
+                }
+            } else {
+                done(false, "email dari '$query' tidak ketemu di inbox")
+            }
+        }
+        tryPage(0)
+    }
+
+    private fun olReplyFlow(text: String, onResult: (Int, String) -> Unit) {
+        val reply = findNode { n ->
+            val l = label(n).lowercase()
+            l == "reply" || l == "balas" || l.startsWith("reply") || l.startsWith("balas")
+        }
+        if (reply == null) { onResult(0, "tombol balas tidak ditemukan (buka emailnya dulu)"); return }
+        clickNode(reply) { _ ->
+            later(1600) {
+                val edit = findNode { it.isEditable }
+                if (edit == null || !typeText(edit, text)) { onResult(0, "gagal menulis balasan"); return@later }
+                later(600) {
+                    val send = findNode { n ->
+                        val l = label(n).lowercase()
+                        l == "send" || l == "kirim" || l.startsWith("send") || l.startsWith("kirim")
+                    }
+                    if (send == null) { onResult(0, "balasan sudah tertulis tapi tombol kirim tidak ketemu"); return@later }
+                    clickNode(send) { ok ->
+                        if (ok) onResult(1, "balasan email terkirim") else onResult(0, "gagal klik kirim")
                     }
                 }
             }
