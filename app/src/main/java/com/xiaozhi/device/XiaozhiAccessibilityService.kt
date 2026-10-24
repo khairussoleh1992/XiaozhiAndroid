@@ -195,10 +195,10 @@ class XiaozhiAccessibilityService : AccessibilityService() {
         }
         // Fallback: scan layar (home -> halaman -> app drawer)
         performGlobalAction(GLOBAL_ACTION_HOME)
-        later(700) { tryFindingApp(targetName, 0, false, onResult) }
+        later(700) { tryFindingApp(targetName, 0, onResult) }
     }
 
-    private fun tryFindingApp(targetName: String, attempt: Int, drawerMode: Boolean, onResult: (Int, String) -> Unit) {
+    private fun tryFindingApp(targetName: String, phase: Int, onResult: (Int, String) -> Unit) {
         val root = rootInActiveWindow
         if (root == null) { onResult(0, "Layar tidak terdeteksi"); return }
 
@@ -239,28 +239,44 @@ class XiaozhiAccessibilityService : AccessibilityService() {
             }
         }
 
-        val metrics = resources.displayMetrics
-        if (!drawerMode && attempt < 4) {
-            // swipe ke halaman home berikutnya
-            swipeXY(metrics.widthPixels * 0.8f, metrics.heightPixels * 0.5f,
-                    metrics.widthPixels * 0.2f, metrics.heightPixels * 0.5f, 300) { _ ->
-                later(600) { tryFindingApp(targetName, attempt + 1, drawerMode, onResult) }
+        // Urutan scan halaman home (semua app user ada di home, sebagian di
+        // folder; tidak memakai app drawer karena swipe-up = feed berita):
+        // phase 0: halaman sekarang, lalu 1x geser maju
+        // phase 1: halaman maju, lalu 2x geser mundur (sampai halaman di
+        //          sebelah kiri halaman awal)
+        // phase 2: coba buka folder yang terlihat, scan isinya
+        // phase 3: scan isi folder
+        when (phase) {
+            0 -> swipePage(back = false) { later(650) { tryFindingApp(targetName, 1, onResult) } }
+            1 -> swipePage(back = true) { _ ->
+                later(450) { swipePage(back = true) { later(650) { tryFindingApp(targetName, 2, onResult) } } }
             }
-        } else if (!drawerMode) {
-            // buka app drawer: swipe up dari bawah tengah
-            swipeXY(metrics.widthPixels * 0.5f, metrics.heightPixels * 0.88f,
-                    metrics.widthPixels * 0.5f, metrics.heightPixels * 0.25f, 350) { _ ->
-                later(900) { tryFindingApp(targetName, 0, true, onResult) }
+            2 -> {
+                val folder = findNode { n ->
+                    val l = label(n).lowercase()
+                    l.startsWith("folder") && (n.isClickable || n.parent?.isClickable == true)
+                }
+                if (folder != null) {
+                    val tgt = if (folder.isClickable) folder else folder.parent
+                    if (tgt != null) {
+                        clickNode(tgt) { _ -> later(900) { tryFindingApp(targetName, 3, onResult) } }
+                        return
+                    }
+                }
+                onResult(0, targetName)
             }
-        } else if (drawerMode && attempt < 6) {
-            // scroll drawer ke bawah
-            swipeXY(metrics.widthPixels * 0.5f, metrics.heightPixels * 0.72f,
-                    metrics.widthPixels * 0.5f, metrics.heightPixels * 0.3f, 300) { _ ->
-                later(500) { tryFindingApp(targetName, attempt + 1, true, onResult) }
-            }
-        } else {
-            onResult(0, targetName)
+            else -> onResult(0, targetName)
         }
+    }
+
+    /** Geser halaman home: back=false maju (jari ke kiri), back=true mundur */
+    private fun swipePage(back: Boolean, done: (Boolean) -> Unit) {
+        val m = resources.displayMetrics
+        val w = m.widthPixels.toFloat()
+        val h = m.heightPixels.toFloat()
+        val x1 = if (back) w * 0.2f else w * 0.8f
+        val x2 = if (back) w * 0.8f else w * 0.2f
+        swipeXY(x1, h * 0.5f, x2, h * 0.5f, 280) { ok -> done(ok) }
     }
 
     /**

@@ -737,6 +737,26 @@ class XiaozhiDevice(
             val apps = try { pm.queryIntentActivities(launcher, 0) } catch (_: Exception) { emptyList() }
             val t = target.lowercase().replace(Regex("[^a-z0-9]"), "")
             val tWords = target.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 3 }
+            // alias nama populer -> langsung ke package (dipakai kalau label
+            // di HP beda dari cara user menyebut aplikasinya)
+            val aliasPkg = mapOf(
+                "fb" to "com.facebook.katana",
+                "yt" to "com.google.android.youtube",
+                "ig" to "com.instagram.android",
+                "insta" to "com.instagram.android",
+                "wa" to "com.whatsapp",
+                "wangsap" to "com.whatsapp",
+                "playstore" to "com.android.vending",
+                "toko" to "com.android.vending",
+                "gmaps" to "com.google.android.apps.maps"
+            )[t]
+            if (aliasPkg != null) {
+                val li = try { pm.getLaunchIntentForPackage(aliasPkg) } catch (_: Exception) { null }
+                if (li != null) {
+                    li.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    try { appContext.startActivity(li); return "ok: opened $target" } catch (_: Exception) { }
+                }
+            }
             val cands = apps.mapNotNull { ri ->
                 val lbl = try { ri.loadLabel(pm)?.toString() } catch (_: Exception) { null }
                     ?: ri.activityInfo.packageName
@@ -747,6 +767,7 @@ class XiaozhiDevice(
                     pn == t -> 95
                     tWords.contains(nl) -> 88   // "google maps" -> label "Maps"
                     nl.startsWith(t) -> 80
+                    (tWords.any { it.length >= 4 && pn.contains(it) }) -> 70
                     pn.contains(t) -> 60
                     nl.contains(t) -> 60
                     (t.length >= 3 && t.contains(nl)) -> 55
@@ -768,18 +789,20 @@ class XiaozhiDevice(
             // Fallback: biarkan aksesibilitas scan layar sendiri (halaman home,
             // app drawer) kalau label tidak ketemu di PackageManager.
             val svc = XiaozhiAccessibilityService.inst
-                ?: return "error: app not found: $target (aksesibilitas nonaktif)"
+                ?: return "error: app named '$target' not found. Ask the user which app they mean; do NOT say it is not installed."
             val res = java.util.concurrent.atomic.AtomicReference("")
             val latch = java.util.concurrent.CountDownLatch(1)
             ui.post {
                 svc.openAppSmart(target) { st, msg ->
-                    res.set(if (st == 1) "ok: opened $msg" else "error: app not found on screen: $msg")
+                    res.set(if (st == 1) "ok: opened $msg"
+                        else "error: no app matching '$target' found. The name on this phone may differ. " +
+                            "Ask the user which app they mean. Do NOT say the app is not installed unless confirmed.")
                     latch.countDown()
                 }
             }
             latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
             val r = res.get()
-            return if (r.isEmpty()) "error: app not found: $target" else r
+            return if (r.isEmpty()) "error: app named '$target' not found. Ask the user which app they mean." else r
         }
         val acc = XiaozhiAccessibilityService.inst
             ?: return "error: phone control not enabled. Ask the user to enable: " +
