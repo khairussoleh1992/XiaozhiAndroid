@@ -313,13 +313,40 @@ async function loadModel(url) {
     bootStatus("Karakter siap");
     document.body.classList.add("model-ready");
     try { model.motion("Idle"); } catch (e) {}
+    var _t0 = performance.now(), _nextBlink = _t0 + 2500, _blinkT = -1;
     app.ticker.add(function () {
-      if (!model || !STATE.speaking) return;
+      if (!model) return;
       try {
         var core = model.internalModel.core;
-        var v = mouthTarget * 1.4;
-        if (v > 1) v = 1;
-        if (core && core.setParameterValueById) core.setParameterValueById("ParamMouthOpenY", v);
+        if (!core || !core.setParameterValueById) return;
+        var t = (performance.now() - _t0) / 1000;
+        var set = function (id, v) { try { core.setParameterValueById(id, v); } catch (e) {} };
+        // napas + goyang halus (idle hidup), hanya jika model punya parameternya
+        set("ParamBreath", (Math.sin(t * 1.6) + 1) / 2);
+        set("ParamBodyAngleX", Math.sin(t * 0.7) * 4);
+        set("ParamBodyAngleZ", Math.sin(t * 0.5) * 2.5);
+        set("ParamAngleZ", Math.sin(t * 0.6 + 1) * 3);
+        set("ParamAngleX", Math.sin(t * 0.4) * 5);
+        set("ParamAngleY", Math.sin(t * 0.55 + 2) * 2.5);
+        set("ParamHairFront", Math.sin(t * 1.1) * 0.5);
+        set("ParamHairSide", Math.sin(t * 0.9 + 1) * 0.5);
+        set("ParamHairBack", Math.sin(t * 0.8 + 2) * 0.5);
+        // kedip acak (jangan override saat ekspresi menutup mata)
+        var now = performance.now();
+        if (!window.__xzEyesLocked) {
+          if (_blinkT < 0 && now > _nextBlink) { _blinkT = now; }
+          if (_blinkT >= 0) {
+            var k = (now - _blinkT) / 180;
+            var open = k < 0.5 ? 1 - k * 2 : (k < 1 ? (k - 0.5) * 2 : 1);
+            set("ParamEyeLOpen", open); set("ParamEyeROpen", open);
+            if (k >= 1) { _blinkT = -1; _nextBlink = now + 2500 + Math.random() * 3500; }
+          }
+        }
+        // mulut ikut suara
+        if (STATE.speaking) {
+          var v = mouthTarget * 1.4; if (v > 1) v = 1;
+          set("ParamMouthOpenY", v);
+        }
       } catch (e) {}
     });
   } catch (e) {
@@ -345,14 +372,22 @@ window.addEventListener("pointerdown", function (e) {
   if (model && model.focus) { try { model.focus(e.clientX, e.clientY); } catch (e2) {} }
 }, { passive: true });
 
+var _exprTimer = null;
 function triggerExpression() {
   if (!model) return;
   try {
-    if (model.internalModel.motionManager.expressionManager && model.internalModel.motionManager.expressionManager.setRandomExpression) {
-      model.internalModel.motionManager.expressionManager.setRandomExpression();
-    } else { model.motion("Tap"); }
-    model.motion("Tap");
-  } catch (e) { try { model.motion("Tap"); } catch (e2) {} }
+    var em = model.internalModel.motionManager.expressionManager;
+    if (em && em.setRandomExpression) {
+      em.setRandomExpression();
+      var cur = em.currentExpression || "";
+      window.__xzEyesLocked = /zzz/i.test(String(em.definitions && em.expressionIndex != null && em.definitions[em.expressionIndex] ? em.definitions[em.expressionIndex].Name : ""));
+      clearTimeout(_exprTimer);
+      _exprTimer = setTimeout(function () {
+        try { em.resetExpression(); } catch (e) {}
+        window.__xzEyesLocked = false;
+      }, 4000);
+    }
+  } catch (e) { console.warn("[XZ] expr", e); }
 }
 
 var pCanvas = document.getElementById("particles"), pCtx = pCanvas.getContext("2d"), parts = [];
