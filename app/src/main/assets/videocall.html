@@ -363,26 +363,40 @@ async function loadModel(url) {
 
 
 var _wmIdx = null;
+// Part watermark yang sudah diketahui dari file cdi3 tiap model.
+// Ellen: "Part17" = 水印组合 (FREE MODEL / 禁止二传 / Bilibili dkk).
+var WM_PART_IDS = ["Part17"];
 function hideWatermarks() {
   if (!model) return;
   try {
-    var core = model.internalModel.core;
+    var core = (model.internalModel && (model.internalModel.core || model.internalModel.coreModel)) || null;
     if (!core) return;
-    var raw = core._model;
-    if (_wmIdx === null && raw && raw.parts && raw.parts.ids) {
+    if (_wmIdx === null) {
       _wmIdx = [];
-      for (var i = 0; i < raw.parts.ids.length; i++) {
-        var id = raw.parts.ids[i];
-        var s = "";
-        try { s = (id && (id.utf8 || (id.getString ? id.getString() : ""))) || ""; } catch (e) { s = ""; }
-        if (/watermark|水印/i.test(String(s))) _wmIdx.push(i);
+      var raw = core._model;
+      var ids = (raw && raw.parts && raw.parts.ids) ? raw.parts.ids : null;
+      if (ids) {
+        for (var i = 0; i < ids.length; i++) {
+          var s = "";
+          try { s = String(ids[i] && ids[i].utf8 ? ids[i].utf8 : ids[i]); } catch (e) { s = ""; }
+          if (s && (WM_PART_IDS.indexOf(s) >= 0 || /watermark|水印/i.test(s))) _wmIdx.push(i);
+        }
+      }
+      if (!_wmIdx.length) _wmIdx = false; // sudah dipindai, jangan ulang tiap frame
+    }
+    if (_wmIdx) {
+      for (var k = 0; k < _wmIdx.length; k++) {
+        var idx = _wmIdx[k];
+        try { if (core.setPartOpacityByIndex) core.setPartOpacityByIndex(idx, 0); } catch (e) {}
+        try { if (core._partOpacities) core._partOpacities[idx] = 0; } catch (e) {}
+        var raw2 = core._model;
+        try { if (raw2 && raw2.parts && raw2.parts.opacities) raw2.parts.opacities[idx] = 0; } catch (e) {}
       }
     }
-    if (_wmIdx && raw && raw.parts && raw.parts.opacities) {
-      for (var k = 0; k < _wmIdx.length; k++) raw.parts.opacities[_wmIdx[k]] = 0;
-      for (var k2 = 0; k2 < _wmIdx.length; k2++) {
-        try { core.setPartOpacityById && core.setPartOpacityById(String(raw.parts.ids[_wmIdx[k2]].utf8 || ""), 0); } catch (e) {}
-      }
+    // jaring pengaman: matikan langsung dengan ID string yang diketahui,
+    // lewat API resmi framework (berlaku walau struktur internal berbeda)
+    for (var j = 0; j < WM_PART_IDS.length; j++) {
+      try { if (core.setPartOpacityById) core.setPartOpacityById(WM_PART_IDS[j], 0); } catch (e) {}
     }
   } catch (e) {}
 }
