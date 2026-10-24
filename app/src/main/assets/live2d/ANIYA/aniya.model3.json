@@ -14,10 +14,6 @@
     "DisplayInfo": "ANIYA.cdi3.json",
     "Expressions": [
       {
-        "Name": "gesture",
-        "File": "expressions/gesture.exp3.json"
-      },
-      {
         "Name": "cry",
         "File": "expressions/cry.exp3.json"
       },
@@ -28,14 +24,6 @@
       {
         "Name": "classic",
         "File": "expressions/classic.exp3.json"
-      },
-      {
-        "Name": "question",
-        "File": "expressions/question.exp3.json"
-      },
-      {
-        "Name": "star",
-        "File": "expressions/star.exp3.json"
       },
       {
         "Name": "angry",
@@ -50,32 +38,12 @@
         "File": "expressions/surprised.exp3.json"
       },
       {
-        "Name": "changeclothes",
-        "File": "expressions/changeclothes.exp3.json"
-      },
-      {
         "Name": "zzz",
         "File": "expressions/zzz.exp3.json"
-      },
-      {
-        "Name": "bigcry",
-        "File": "expressions/bigcry.exp3.json"
-      },
-      {
-        "Name": "peanut",
-        "File": "expressions/peanut.exp3.json"
-      },
-      {
-        "Name": "smalleyes",
-        "File": "expressions/smalleyes.exp3.json"
-      },
-      {
-        "Name": "grin",
-        "File": "expressions/grin.exp3.json"
       }
     ],
     "Motions": {
-      "Idle": [
+      "Scene": [
         {
           "File": "motions/Scene1.motion3.json",
           "Sound": ""
