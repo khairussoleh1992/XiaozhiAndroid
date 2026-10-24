@@ -1,0 +1,376 @@
+{
+	"Version": 3,
+	"Parameters": [
+		{
+			"Id": "Param4",
+			"GroupId": "ParamGroup",
+			"Name": "耳朵物理c"
+		},
+		{
+			"Id": "Param5",
+			"GroupId": "ParamGroup",
+			"Name": "耳朵物理b"
+		},
+		{
+			"Id": "Param6",
+			"GroupId": "ParamGroup",
+			"Name": "耳朵物理a"
+		},
+		{
+			"Id": "Param7",
+			"GroupId": "ParamGroup",
+			"Name": "耳朵物理L C"
+		},
+		{
+			"Id": "Param8",
+			"GroupId": "ParamGroup",
+			"Name": "耳朵物理L B"
+		},
+		{
+			"Id": "Param9",
+			"GroupId": "ParamGroup",
+			"Name": "耳朵物理L A"
+		},
+		{
+			"Id": "Param16",
+			"GroupId": "ParamGroup3",
+			"Name": "胡子b"
+		},
+		{
+			"Id": "Param18",
+			"GroupId": "ParamGroup3",
+			"Name": "胡子a"
+		},
+		{
+			"Id": "Param20",
+			"GroupId": "ParamGroup3",
+			"Name": "胡子L b"
+		},
+		{
+			"Id": "Param22",
+			"GroupId": "ParamGroup3",
+			"Name": "胡子L a"
+		},
+		{
+			"Id": "Param12",
+			"GroupId": "ParamGroup2",
+			"Name": "身体Q弹b"
+		},
+		{
+			"Id": "Param13",
+			"GroupId": "ParamGroup2",
+			"Name": "身体Q弹by"
+		},
+		{
+			"Id": "Param14",
+			"GroupId": "ParamGroup2",
+			"Name": "身体Q弹a"
+		},
+		{
+			"Id": "Param15",
+			"GroupId": "ParamGroup2",
+			"Name": "身体Q弹ay"
+		},
+		{
+			"Id": "Param26",
+			"GroupId": "",
+			"Name": "呆毛2"
+		},
+		{
+			"Id": "Param25",
+			"GroupId": "",
+			"Name": "呆毛1"
+		},
+		{
+			"Id": "Param",
+			"GroupId": "",
+			"Name": "哭哭切换"
+		},
+		{
+			"Id": "Param19",
+			"GroupId": "",
+			"Name": "手物理1"
+		},
+		{
+			"Id": "Param27",
+			"GroupId": "",
+			"Name": "微笑"
+		},
+		{
+			"Id": "Param23",
+			"GroupId": "",
+			"Name": "斧头九轴（动画"
+		},
+		{
+			"Id": "Param24",
+			"GroupId": "",
+			"Name": "手九轴（动画"
+		},
+		{
+			"Id": "Param21",
+			"GroupId": "",
+			"Name": "斧头物理"
+		},
+		{
+			"Id": "Param17",
+			"GroupId": "",
+			"Name": "手切换"
+		},
+		{
+			"Id": "Param2",
+			"GroupId": "",
+			"Name": "难受切换"
+		},
+		{
+			"Id": "Param3",
+			"GroupId": "",
+			"Name": "晕厥切换"
+		},
+		{
+			"Id": "ParamAngleX",
+			"GroupId": "",
+			"Name": "角度 X"
+		},
+		{
+			"Id": "ParamAngleY",
+			"GroupId": "",
+			"Name": "角度 Y"
+		},
+		{
+			"Id": "ParamAngleZ",
+			"GroupId": "",
+			"Name": "角度 Z"
+		},
+		{
+			"Id": "ParamEyeLOpen",
+			"GroupId": "",
+			"Name": "左眼　开闭"
+		},
+		{
+			"Id": "ParamEyeLSmile",
+			"GroupId": "",
+			"Name": "左眼　微笑"
+		},
+		{
+			"Id": "ParamEyeROpen",
+			"GroupId": "",
+			"Name": "右眼"
+		},
+		{
+			"Id": "ParamEyeRSmile",
+			"GroupId": "",
+			"Name": "右眼　微笑"
+		},
+		{
+			"Id": "ParamEyeBallX",
+			"GroupId": "",
+			"Name": "眼珠 X"
+		},
+		{
+			"Id": "ParamEyeBallY",
+			"GroupId": "",
+			"Name": "眼珠 Y"
+		},
+		{
+			"Id": "ParamBrowLY",
+			"GroupId": "",
+			"Name": "左眉上下"
+		},
+		{
+			"Id": "ParamBrowRY",
+			"GroupId": "",
+			"Name": "右眉　上下"
+		},
+		{
+			"Id": "ParamBrowLX",
+			"GroupId": "",
+			"Name": "左眉　左右"
+		},
+		{
+			"Id": "ParamBrowRX",
+			"GroupId": "",
+			"Name": "右眉　左右"
+		},
+		{
+			"Id": "ParamBrowLAngle",
+			"GroupId": "",
+			"Name": "左眉　角度"
+		},
+		{
+			"Id": "ParamBrowRAngle",
+			"GroupId": "",
+			"Name": "右眉　角度"
+		},
+		{
+			"Id": "ParamBrowLForm",
+			"GroupId": "",
+			"Name": "左眉　変形"
+		},
+		{
+			"Id": "ParamBrowRForm",
+			"GroupId": "",
+			"Name": "右眉　変形"
+		},
+		{
+			"Id": "ParamMouthForm",
+			"GroupId": "",
+			"Name": "嘴　变形"
+		},
+		{
+			"Id": "ParamMouthOpenY",
+			"GroupId": "",
+			"Name": "嘴　张开和闭合"
+		},
+		{
+			"Id": "ParamCheek",
+			"GroupId": "",
+			"Name": "脸颊泛红"
+		},
+		{
+			"Id": "ParamBodyAngleX",
+			"GroupId": "",
+			"Name": "身体旋转　X"
+		},
+		{
+			"Id": "Param11",
+			"GroupId": "",
+			"Name": "身体位移"
+		},
+		{
+			"Id": "ParamBodyAngleY",
+			"GroupId": "",
+			"Name": "身体旋转　Y"
+		},
+		{
+			"Id": "ParamBodyAngleZ",
+			"GroupId": "",
+			"Name": "身体旋转　Z"
+		},
+		{
+			"Id": "Param10",
+			"GroupId": "",
+			"Name": "回弹"
+		},
+		{
+			"Id": "ParamBreath",
+			"GroupId": "",
+			"Name": "呼吸"
+		},
+		{
+			"Id": "ParamHairFront",
+			"GroupId": "",
+			"Name": "摇动 前发"
+		},
+		{
+			"Id": "ParamHairSide",
+			"GroupId": "",
+			"Name": "摇动 侧发"
+		},
+		{
+			"Id": "ParamHairBack",
+			"GroupId": "",
+			"Name": "摇动 后发"
+		}
+	],
+	"ParameterGroups": [
+		{
+			"Id": "ParamGroup",
+			"GroupId": "",
+			"Name": "耳朵物理"
+		},
+		{
+			"Id": "ParamGroup3",
+			"GroupId": "",
+			"Name": "胡子"
+		},
+		{
+			"Id": "ParamGroup2",
+			"GroupId": "",
+			"Name": "身体Q弹"
+		}
+	],
+	"Parts": [
+		{
+			"Id": "Part15",
+			"Name": "部件15"
+		},
+		{
+			"Id": "Part14",
+			"Name": "灯泡"
+		},
+		{
+			"Id": "Part",
+			"Name": "参考"
+		},
+		{
+			"Id": "Part2",
+			"Name": "图层组1"
+		},
+		{
+			"Id": "Part16",
+			"Name": "锄头2"
+		},
+		{
+			"Id": "Part17",
+			"Name": "手部动作"
+		},
+		{
+			"Id": "Part3",
+			"Name": "头"
+		},
+		{
+			"Id": "Part19",
+			"Name": "手部动作"
+		},
+		{
+			"Id": "Part18",
+			"Name": "斧头"
+		},
+		{
+			"Id": "Part13",
+			"Name": "图层组2"
+		},
+		{
+			"Id": "Part4",
+			"Name": "表情4"
+		},
+		{
+			"Id": "Part5",
+			"Name": "表情3"
+		},
+		{
+			"Id": "Part6",
+			"Name": "表情2"
+		},
+		{
+			"Id": "Part7",
+			"Name": "表情1"
+		},
+		{
+			"Id": "Part8",
+			"Name": "初始眼睛"
+		},
+		{
+			"Id": "Part9",
+			"Name": "胡子"
+		},
+		{
+			"Id": "Part10",
+			"Name": "耳朵前"
+		},
+		{
+			"Id": "Part11",
+			"Name": "头"
+		},
+		{
+			"Id": "Part12",
+			"Name": "耳朵后"
+		}
+	],
+	"CombinedParameters": [
+		[
+			"ParamAngleX",
+			"ParamAngleY"
+		]
+	]
+}

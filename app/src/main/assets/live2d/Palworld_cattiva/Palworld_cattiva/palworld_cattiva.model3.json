@@ -1,0 +1,27 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "palworld_cattiva.moc3",
+		"Textures": [
+			"palworld_cattiva.4096/texture_00.png",
+			"palworld_cattiva.4096/texture_01.png",
+			"palworld_cattiva.4096/texture_02.png",
+			"palworld_cattiva.4096/texture_03.png",
+			"palworld_cattiva.4096/texture_04.png"
+		],
+		"Physics": "palworld_cattiva.physics3.json",
+		"DisplayInfo": "palworld_cattiva.cdi3.json"
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		}
+	]
+}
