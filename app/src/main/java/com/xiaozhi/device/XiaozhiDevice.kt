@@ -633,7 +633,8 @@ class XiaozhiDevice(
                     "You are running ON the user's Android phone and you can control it. " +
                     "Open an app by label or package name, e.g. whatsapp, camera, settings, calculator, google maps. " +
                     "ALWAYS use THIS tool to open an app instead of tapping icons with self.phone.tap. " +
-                    "It matches labels flexibly ('google maps' opens Maps) and reports only after the app is really open.", appSch))
+                    "It matches labels flexibly ('google maps' opens Maps) and reports only after the app is really open. " +
+                    "When it reports not found, you already searched everything yourself: do NOT ask the user to search the home screen manually.", appSch))
                 toolsArr.put(phEntry("self.phone.screen_text",
                     "Read the current phone screen. Returns visible texts with positions [x,y]. " +
                     "Use before tapping to find coordinates.", emptySchema))
@@ -732,13 +733,8 @@ class XiaozhiDevice(
             target = target.trim()
             if (target.isEmpty()) return "error: provide app name or package"
             val pm = appContext.packageManager
-            val launcher = android.content.Intent(android.content.Intent.ACTION_MAIN)
-                .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-            val apps = try { pm.queryIntentActivities(launcher, 0) } catch (_: Exception) { emptyList() }
-            val t = target.lowercase().replace(Regex("[^a-z0-9]"), "")
-            val tWords = target.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 3 }
-            // alias nama populer -> langsung ke package (dipakai kalau label
-            // di HP beda dari cara user menyebut aplikasinya)
+            // alias langsung ke package (label di HP bisa beda total)
+            val t0 = target.lowercase().replace(Regex("[^a-z0-9]"), "")
             val aliasPkg = mapOf(
                 "fb" to "com.facebook.katana",
                 "yt" to "com.google.android.youtube",
@@ -749,7 +745,7 @@ class XiaozhiDevice(
                 "playstore" to "com.android.vending",
                 "toko" to "com.android.vending",
                 "gmaps" to "com.google.android.apps.maps"
-            )[t]
+            )[t0]
             if (aliasPkg != null) {
                 val li = try { pm.getLaunchIntentForPackage(aliasPkg) } catch (_: Exception) { null }
                 if (li != null) {
@@ -757,52 +753,19 @@ class XiaozhiDevice(
                     try { appContext.startActivity(li); return "ok: opened $target" } catch (_: Exception) { }
                 }
             }
-            val cands = apps.mapNotNull { ri ->
-                val lbl = try { ri.loadLabel(pm)?.toString() } catch (_: Exception) { null }
-                    ?: ri.activityInfo.packageName
-                val nl = lbl.lowercase().replace(Regex("[^a-z0-9]"), "")
-                val pn = ri.activityInfo.packageName.lowercase()
-                val score = when {
-                    nl == t -> 100
-                    pn == t -> 95
-                    tWords.contains(nl) -> 88   // "google maps" -> label "Maps"
-                    nl.startsWith(t) -> 80
-                    (tWords.any { it.length >= 4 && pn.contains(it) }) -> 70
-                    pn.contains(t) -> 60
-                    nl.contains(t) -> 60
-                    (t.length >= 3 && t.contains(nl)) -> 55
-                    else -> 0
-                }
-                if (score > 0) Triple(score, lbl, ri) else null
-            }.sortedWith(compareByDescending<Triple<Int, String, android.content.pm.ResolveInfo>> { it.first }
-                .thenBy { it.second.length })
-            val best = cands.firstOrNull()
-            if (best != null) {
-                try {
-                    appContext.startActivity(android.content.Intent(android.content.Intent.ACTION_MAIN)
-                        .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-                        .setClassName(best.third.activityInfo.packageName, best.third.activityInfo.name)
-                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                    return "ok: opened " + best.second
-                } catch (_: Exception) { }
-            }
-            // Fallback: biarkan aksesibilitas scan layar sendiri (halaman home,
-            // app drawer) kalau label tidak ketemu di PackageManager.
             val svc = XiaozhiAccessibilityService.inst
-                ?: return "error: app named '$target' not found. Ask the user which app they mean; do NOT say it is not installed."
+                ?: return "error: accessibility service is off; ask the user to enable it"
             val res = java.util.concurrent.atomic.AtomicReference("")
             val latch = java.util.concurrent.CountDownLatch(1)
             ui.post {
                 svc.openAppSmart(target) { st, msg ->
-                    res.set(if (st == 1) "ok: opened $msg"
-                        else "error: no app matching '$target' found. The name on this phone may differ. " +
-                            "Ask the user which app they mean. Do NOT say the app is not installed unless confirmed.")
+                    res.set(if (st == 1) "ok: opened $msg" else "error: $msg")
                     latch.countDown()
                 }
             }
             latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
             val r = res.get()
-            return if (r.isEmpty()) "error: app named '$target' not found. Ask the user which app they mean." else r
+            return if (r.isEmpty()) "error: app not found: $target" else r
         }
         val acc = XiaozhiAccessibilityService.inst
             ?: return "error: phone control not enabled. Ask the user to enable: " +

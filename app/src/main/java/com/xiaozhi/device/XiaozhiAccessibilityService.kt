@@ -121,10 +121,23 @@ class XiaozhiAccessibilityService : AccessibilityService() {
     }
 
     private fun clickNode(n: AccessibilityNodeInfo, done: (Boolean) -> Unit) {
-        if (n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) { done(true); return }
         val r = Rect()
         n.getBoundsInScreen(r)
-        tapXY(r.exactCenterX(), r.exactCenterY()) { ok -> done(ok) }
+        if (r.width() > 2 && r.height() > 2) {
+            // sentuhan FISIK dulu: kelihatan di layar (tampilan ketuk aktif)
+            // dan perilakunya sama seperti jari manusia -> tidak memicu
+            // popup uninstall yang tadinya muncul dari ACTION_CLICK
+            tapXY(r.exactCenterX(), r.exactCenterY()) { ok ->
+                if (ok) done(true)
+                else if (n.performAction(AccessibilityNodeInfo.ACTION_CLICK) ||
+                    n.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) done(true)
+                else done(false)
+            }
+        } else {
+            if (n.performAction(AccessibilityNodeInfo.ACTION_CLICK) ||
+                n.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) done(true)
+            else done(false)
+        }
     }
 
     /** Tulis teks ke node editable: SET_TEXT, atau fallback clipboard+paste */
@@ -157,45 +170,111 @@ class XiaozhiAccessibilityService : AccessibilityService() {
      * 2. Kalau tidak ketemu, scan layar sendiri: home, swipe halaman,
      *    buka app drawer, scroll ke bawah, sampai 6 halaman.
      */
+    /** jarak Levenshtein untuk pencocokan typo (wahtsap -> whatsapp) */
+    private fun lev(a: String, b: String): Int {
+        if (a == b) return 0
+        if (a.isEmpty()) return b.length
+        if (b.isEmpty()) return a.length
+        var prev = IntArray(b.length + 1) { it }
+        var cur = IntArray(b.length + 1)
+        for (i in 1..a.length) {
+            cur[0] = i
+            for (j in 1..b.length) {
+                cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1,
+                    prev[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1)
+            }
+            val tmp = prev; prev = cur; cur = tmp
+        }
+        return prev[b.length]
+    }
+
+    // sinonim sebutan Indonesia -> label umum aplikasi
+    private val appSyn = mapOf(
+        "peta" to "maps", "gps" to "maps", "lokasi" to "maps",
+        "kamera" to "camera", "galeri" to "gallery", "foto" to "photos",
+        "pengaturan" to "settings", "setelan" to "settings",
+        "telepon" to "phone", "kontak" to "contacts", "kalender" to "calendar",
+        "pesan" to "messages", "sms" to "messages", "jam" to "clock",
+        "musik" to "music", "browser" to "chrome", "internet" to "chrome",
+        "toko" to "play store", "wa" to "whatsapp", "wangsap" to "whatsapp",
+        "ig" to "instagram", "insta" to "instagram", "fb" to "facebook",
+        "yt" to "youtube", "surat" to "mail"
+    )
+    private val stopWords = setOf("buka", "open", "launch", "aplikasi", "app",
+        "tolong", "please", "yang", "cari", "jalankan")
+
     fun openAppSmart(targetName: String, onResult: (Int, String) -> Unit) {
         val pm = packageManager
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val apps = try { pm.queryIntentActivities(launcher, 0) } catch (_: Exception) { emptyList() }
-        val t = norm(targetName)
-        val tWords = targetName.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 3 }
+
+        val rawWords = targetName.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+        val core = rawWords.filter { !stopWords.contains(it) }
+        // varian target: teks penuh, kata inti saja, + sinonim (peta->maps)
+        val variants = linkedSetOf(norm(targetName), norm(core.joinToString("")))
+        for (w in core) {
+            appSyn[w]?.let { variants.add(norm(it)) }
+        }
+        variants.remove("")
+
+        // skor satu label terhadap semua varian
+        fun scoreOf(nl: String, pn: String): Int {
+            var best = 0
+            for (v in variants) {
+                val d = lev(v, nl)
+                val s = when {
+                    nl == v -> 100
+                    pn == v -> 95
+                    core.any { norm(it) == nl } -> 88          // satu kata inti == label
+                    v.length >= 4 && d == 1 -> 86              // typo 1 huruf
+                    v.length >= 6 && d == 2 -> 82              // typo 2 huruf
+                    nl.startsWith(v) -> 80
+                    v.length >= 4 && pn.split('.', '_', ' ').any { it == v } -> 78
+                    pn.contains(v) -> 65
+                    nl.contains(v) -> 60
+                    (v.length >= 3 && v.contains(nl)) -> 55
+                    else -> 0
+                }
+                if (s > best) best = s
+            }
+            return best
+        }
+
+        data class Cand(val score: Int, val label: String, val ri: android.content.pm.ResolveInfo)
+
         val cands = apps.mapNotNull { ri ->
             val lbl = try { ri.loadLabel(pm)?.toString() } catch (_: Exception) { null }
                 ?: ri.activityInfo.packageName
-            val nl = norm(lbl)
-            val pn = ri.activityInfo.packageName.lowercase()
-            val score = when {
-                nl == t -> 100
-                pn == t -> 95
-                tWords.contains(nl) -> 88   // "google maps" -> label "Maps"
-                nl.startsWith(t) -> 80
-                pn.contains(t) -> 60
-                nl.contains(t) -> 60
-                (t.length >= 3 && t.contains(nl)) -> 55
-                else -> 0
-            }
-            if (score > 0) Triple(score, lbl, ri) else null
-        }.sortedWith(compareByDescending<Triple<Int, String, Any>> { it.first }.thenBy { it.second.length })
+            val sc = scoreOf(norm(lbl), ri.activityInfo.packageName.lowercase())
+            if (sc > 0) Cand(sc, lbl, ri) else null
+        }.sortedWith(compareByDescending<Cand> { it.score }.thenBy { it.label.length })
 
         val best = cands.firstOrNull()
-        if (best != null) {
-            val ri = best.third as android.content.pm.ResolveInfo
+        if (best != null && best.score >= 55) {
             try {
                 startActivity(Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_LAUNCHER)
-                    .setClassName(ri.activityInfo.packageName, ri.activityInfo.name)
+                    .setClassName(best.ri.activityInfo.packageName, best.ri.activityInfo.name)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                onResult(1, best.second)
+                onResult(1, best.label)
                 return
             } catch (_: Exception) { }
         }
-        // Fallback: scan layar (home -> halaman -> app drawer)
+
+        // Fallback: scan layar home + folder
+        val scanTarget = variants.firstOrNull { it.isNotEmpty() } ?: norm(targetName)
+        val suggests = cands.take(3).filter { it.score >= 30 }.joinToString(", ") { it.label }
         performGlobalAction(GLOBAL_ACTION_HOME)
-        later(700) { tryFindingApp(targetName, 0, onResult) }
+        later(700) {
+            tryFindingApp(scanTarget, 0) { st, msg ->
+                if (st == 1) onResult(1, msg)
+                else onResult(0, "app '$targetName' tidak ditemukan" +
+                    (if (suggests.isEmpty()) "" else ". Yang mirip: $suggests") +
+                    ". Kamu SUDAH otomatis mencari di daftar aplikasi, semua halaman home, dan folder tanpa hasil. " +
+                    "Jangan minta user mencari di homescreen sendiri. Sampaikan saja aplikasinya tidak ada di HP ini, " +
+                    "dan minta user menyebut nama persis yang tertulis di ikonnya.")
+            }
+        }
     }
 
     private fun tryFindingApp(targetName: String, phase: Int, onResult: (Int, String) -> Unit) {
@@ -295,7 +374,7 @@ class XiaozhiAccessibilityService : AccessibilityService() {
                     onResult(1, targetName)
                     return@later
                 }
-                if (depth >= 2) { onResult(0, targetName); return@later }
+                if (depth >= 3) { onResult(0, targetName); return@later }
                 val t = norm(targetName)
                 val root = rootInActiveWindow
                 var pick: AccessibilityNodeInfo? = null
@@ -311,13 +390,30 @@ class XiaozhiAccessibilityService : AccessibilityService() {
                         }
                     }
                 }
+                // kalau yang muncul malah popup long-press (Copot pemasangan,
+                // Uninstall, Info aplikasi) tutup dulu dengan BACK
+                val popup = hasLongPressPopup()
+                if (popup) performGlobalAction(GLOBAL_ACTION_BACK)
                 val node2 = pick
                 if (node2 == null) { onResult(0, targetName); return@later }
                 val tgt2 = if (node2.isClickable) node2 else node2.parent
                 if (tgt2 == null) { onResult(0, targetName); return@later }
-                clickAndVerify(tgt2, targetName, depth + 1, onResult)
+                val delay = if (popup) 900L else 50L
+                later(delay) { clickAndVerify(tgt2, targetName, depth + 1, onResult) }
             }
         }
+    }
+
+    /** deteksi popup long-press MIUI/HyperOS di launcher */
+    private fun hasLongPressPopup(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        var popup = false
+        walk(root) { n ->
+            val l = label(n).lowercase().trim()
+            if (l == "uninstall" || l == "copot pemasangan" || l == "hapus" ||
+                l == "remove" || l == "app info" || l == "info aplikasi") popup = true
+        }
+        return popup
     }
 
     // ---------------- WhatsApp ----------------
