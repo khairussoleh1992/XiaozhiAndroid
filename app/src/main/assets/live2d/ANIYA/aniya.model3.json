@@ -1,0 +1,115 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "ANIYA.moc3",
+    "Textures": [
+      "ANIYA.2048/texture_00.png",
+      "ANIYA.2048/texture_01.png",
+      "ANIYA.2048/texture_02.png",
+      "ANIYA.2048/texture_03.png",
+      "ANIYA.2048/texture_04.png",
+      "ANIYA.2048/texture_05.png"
+    ],
+    "Physics": "ANIYA.physics3.json",
+    "DisplayInfo": "ANIYA.cdi3.json",
+    "Expressions": [
+      {
+        "Name": "gesture",
+        "File": "expressions/gesture.exp3.json"
+      },
+      {
+        "Name": "cry",
+        "File": "expressions/cry.exp3.json"
+      },
+      {
+        "Name": "shock",
+        "File": "expressions/shock.exp3.json"
+      },
+      {
+        "Name": "classic",
+        "File": "expressions/classic.exp3.json"
+      },
+      {
+        "Name": "question",
+        "File": "expressions/question.exp3.json"
+      },
+      {
+        "Name": "star",
+        "File": "expressions/star.exp3.json"
+      },
+      {
+        "Name": "angry",
+        "File": "expressions/angry.exp3.json"
+      },
+      {
+        "Name": "speechless",
+        "File": "expressions/speechless.exp3.json"
+      },
+      {
+        "Name": "surprised",
+        "File": "expressions/surprised.exp3.json"
+      },
+      {
+        "Name": "changeclothes",
+        "File": "expressions/changeclothes.exp3.json"
+      },
+      {
+        "Name": "zzz",
+        "File": "expressions/zzz.exp3.json"
+      },
+      {
+        "Name": "bigcry",
+        "File": "expressions/bigcry.exp3.json"
+      },
+      {
+        "Name": "peanut",
+        "File": "expressions/peanut.exp3.json"
+      },
+      {
+        "Name": "smalleyes",
+        "File": "expressions/smalleyes.exp3.json"
+      },
+      {
+        "Name": "grin",
+        "File": "expressions/grin.exp3.json"
+      }
+    ],
+    "Motions": {
+      "Idle": [
+        {
+          "File": "motions/Scene1.motion3.json",
+          "Sound": ""
+        },
+        {
+          "File": "motions/Scene2.motion3.json",
+          "Sound": ""
+        },
+        {
+          "File": "motions/Scene3.motion3.json",
+          "Sound": ""
+        },
+        {
+          "File": "motions/zoulu.motion3.json",
+          "Sound": ""
+        }
+      ]
+    }
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": [
+        "ParamMouthOpenY"
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": [
+        "ParamEyeLOpen",
+        "ParamEyeROpen"
+      ]
+    }
+  ]
+}
