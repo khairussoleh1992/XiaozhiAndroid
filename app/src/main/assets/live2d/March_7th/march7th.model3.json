@@ -1,0 +1,74 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "March7th.moc3",
+    "Textures": [
+      "March7th.2048/texture_00.png",
+      "March7th.2048/texture_01.png"
+    ],
+    "Physics": "March7th.physics3.json",
+    "DisplayInfo": "March7th.cdi3.json",
+    "Expressions": [
+      {
+        "Name": "e1",
+        "File": "exp_1.exp3.json"
+      },
+      {
+        "Name": "e2",
+        "File": "exp_2.exp3.json"
+      },
+      {
+        "Name": "e3",
+        "File": "exp_3.exp3.json"
+      },
+      {
+        "Name": "e4",
+        "File": "exp_4.exp3.json"
+      },
+      {
+        "Name": "e5",
+        "File": "exp_5.exp3.json"
+      },
+      {
+        "Name": "e6",
+        "File": "exp_6.exp3.json"
+      },
+      {
+        "Name": "e7",
+        "File": "exp_7.exp3.json"
+      },
+      {
+        "Name": "e8",
+        "File": "exp_8.exp3.json"
+      }
+    ],
+    "Motions": {
+      "Scene": [
+        {
+          "File": "motions/zhaiyan.motion3.json"
+        },
+        {
+          "File": "motions/zhaoxiang.motion3.json"
+        }
+      ]
+    }
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": [
+        "ParamEyeLOpen",
+        "ParamEyeROpen"
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": [
+        "ParamMouthOpenY"
+      ]
+    }
+  ],
+  "HitAreas": []
+}
