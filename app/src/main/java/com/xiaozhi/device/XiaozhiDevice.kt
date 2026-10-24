@@ -611,7 +611,7 @@ class XiaozhiDevice(
                     put("type", "object")
                     put("properties", JSONObject().put("from", JSONObject().apply {
                         put("type", "string")
-                        put("description", "Optional: sender name or subject to open a specific email from the inbox, e.g. 'Budi'. Default: read the inbox list."
+                        put("description", "Optional: sender name or subject to open a specific email from the inbox, e.g. 'Budi'. Default: read the inbox list.")
                     }))
                 }
                 val olReplySch = JSONObject().apply {
